@@ -58,6 +58,10 @@ interface Investment {
     buyDate: string
     journalId?: string | null
     journal?: Journal | null
+    user?: {
+        name: string | null
+        email: string
+    } | null
     status: string
     createdAt: string
 }
@@ -791,6 +795,16 @@ export default function InvestmentsPage() {
             key: "journal",
             label: "Diario",
             render: (item: Investment) => item.journal?.name || "-"
+        },
+        {
+            key: "user",
+            label: "Usuario",
+            render: (item: Investment) => (
+                <div className="flex flex-col">
+                    <span className="text-sm font-medium">{item.user?.name || "Desconocido"}</span>
+                    <span className="text-xs text-muted-foreground">{item.user?.email}</span>
+                </div>
+            )
         }
     ]
 

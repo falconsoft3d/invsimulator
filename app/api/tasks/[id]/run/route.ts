@@ -1,7 +1,7 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { NextResponse } from "next/server"
-import { AIService } from "@/lib/ai/aiService"
+import { AIService } from "@/lib/ai/aiServiceV2"
 
 export async function POST(
     req: Request,
@@ -43,16 +43,39 @@ export async function POST(
 
             console.log(`[BOT] Ejecutando bots para ${botUsers.length} usuarios...`)
 
+            // Buffer para acumular el log completo
+            let logBuffer = `1- INICIO: Encontrados ${botUsers.length} usuarios con configuración de bot válida.\n\n`
+
             const results = []
 
             for (const user of botUsers) {
                 try {
-                    console.log(`[BOT] Procesando usuario: ${user.name}`)
+                    logBuffer += `--------------------------------------------------\n`
+                    logBuffer += `2- Procesando usuario: ${user.name} (ID: ${user.id})...\n`
 
                     // Analizar y obtener recomendaciones
-                    const recommendations = await AIService.analyzeAndRecommend(user.id)
+                    const analysisResult = await AIService.analyzeAndRecommend(user.id)
+                    const { recommendations, debug } = analysisResult
 
-                    if (recommendations.length === 0) {
+                    // Agregar info de debug al log unificado
+                    logBuffer += `\n[DEBUG AI - ${debug.modelUsed}]\n`
+                    logBuffer += `>> PROMPT ENVIADO:\n${debug.promptSent}\n`
+                    logBuffer += `>> RESPUESTA CRUDA:\n${debug.rawResponse}\n`
+                    if (debug.error) {
+                        logBuffer += `!! ERROR INTERNO AI: ${debug.error}\n`
+                    }
+
+                    logBuffer += `\n3- RESPUESTA PARSEADA:\n   Recomendaciones: ${recommendations.length}\n`
+
+                    if (recommendations.length > 0) {
+                        try {
+                            logBuffer += `   Detalle RAW (JSON): ${JSON.stringify(recommendations)}\n`
+                        } catch (e) { }
+                    }
+
+                    if (!recommendations || recommendations.length === 0) {
+                        logBuffer += `   AVISO: Lista vacía. El bot no operará.\n`
+
                         results.push({
                             userId: user.id,
                             userName: user.name,
@@ -65,6 +88,8 @@ export async function POST(
                     // Ejecutar recomendaciones
                     const executed = await AIService.executeRecommendations(user.id, recommendations)
 
+                    logBuffer += `4- EJECUCIÓN: ${executed.success} exitosas, ${executed.failed} fallidas.\n`
+
                     results.push({
                         userId: user.id,
                         userName: user.name,
@@ -73,9 +98,8 @@ export async function POST(
                         recommendations: recommendations.length
                     })
 
-                    console.log(`[BOT] Usuario ${user.name}: ${executed.success} exitosas, ${executed.failed} fallidas`)
-
                 } catch (error: any) {
+                    logBuffer += `ERROR procesando usuario ${user.name}: ${error.message}\n`
                     console.error(`[BOT] Error procesando usuario ${user.name}:`, error)
                     results.push({
                         userId: user.id,
@@ -89,9 +113,29 @@ export async function POST(
             const totalSuccess = results.filter(r => r.success).length
             const totalFailed = results.filter(r => !r.success).length
 
+            // Calcular total de operaciones
+            let totalOps = 0
+            results.forEach(r => {
+                if (r.operations) {
+                    totalOps += r.operations.success
+                }
+            })
+
+            const summaryMessage = `Bots ejecutados: ${totalSuccess} usuarios procesados (${totalOps} operaciones).`
+            logBuffer += `\n==================================================\n`
+            logBuffer += `RESUMEN FINAL: ${summaryMessage}`
+
+            // Log FINAL UNIFICADO
+            await prisma.systemLog.create({
+                data: {
+                    description: logBuffer,
+                    origin: "AutoInvestmentTask"
+                }
+            })
+
             return NextResponse.json({
                 success: true,
-                message: `Bots ejecutados: ${totalSuccess} usuarios procesados, ${totalFailed} con errores`,
+                message: summaryMessage,
                 results,
                 summary: {
                     totalUsers: botUsers.length,

@@ -11,7 +11,10 @@ interface SystemLog {
     createdAt: string
 }
 
+import { useRouter } from "next/navigation"
+
 export default function LogsPage() {
+    const router = useRouter()
     const [logs, setLogs] = useState<SystemLog[]>([])
     const [loading, setLoading] = useState(true)
 
@@ -83,7 +86,25 @@ export default function LogsPage() {
                 columns={columns}
                 getItemId={(l) => String(l.id)}
                 searchPlaceholder="Buscar logs..."
-            // No onCreate or onEdit for Read-Only Logs
+                onRowClick={(l) => router.push(`/dashboard/logs/${l.id}`)}
+                onBulkDelete={async (ids) => {
+                    try {
+                        const res = await fetch("/api/logs/bulk-delete", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ ids })
+                        })
+
+                        if (res.ok) {
+                            fetchLogs() // Recargar lista
+                        } else {
+                            alert("Error eliminando logs")
+                        }
+                    } catch (error) {
+                        console.error("Error deleting logs:", error)
+                        alert("Error eliminando logs")
+                    }
+                }}
             />
         </div>
     )

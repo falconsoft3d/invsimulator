@@ -1,6 +1,6 @@
 import { auth } from "@/auth"
 import { NextResponse } from "next/server"
-import { AIService } from "@/lib/ai/aiService"
+import { AIService } from "@/lib/ai/aiServiceV2"
 import { prisma } from "@/lib/prisma"
 
 /**
@@ -48,11 +48,13 @@ export async function POST(req: Request) {
         }
 
         // Analizar y obtener recomendaciones
-        const recommendations = await AIService.analyzeAndRecommend(userId)
+        const result = await AIService.analyzeAndRecommend(userId)
+        const recommendations = result.recommendations
 
         return NextResponse.json({
             success: true,
             recommendations,
+            debug: result.debug, // Agregamos debug por si acaso
             count: recommendations.length
         })
     } catch (error: any) {

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Plus, Pencil, Trash2, Timer, Save, X, Play } from "lucide-react"
+import { Plus, Pencil, Trash2, Timer, Save, X, Play, Loader2 } from "lucide-react"
 import TableTemplate from "@/components/TableTemplate"
 
 interface ScheduledTask {
@@ -17,6 +17,7 @@ interface ScheduledTask {
 export default function TasksPage() {
     const [tasks, setTasks] = useState<ScheduledTask[]>([])
     const [loading, setLoading] = useState(true)
+    const [runningTaskId, setRunningTaskId] = useState<string | null>(null)
     const [isEditing, setIsEditing] = useState(false)
     const [currentTask, setCurrentTask] = useState<Partial<ScheduledTask>>({
         name: "",
@@ -111,15 +112,20 @@ export default function TasksPage() {
     }
 
     const handleRun = async (task: ScheduledTask) => {
+        if (runningTaskId) return // Evitar doble ejecución
+
+        setRunningTaskId(task.id)
         try {
             const res = await fetch(`/api/tasks/${task.id}/run`, {
                 method: "POST",
             })
-            if (res.ok) {
-                alert(`Tarea "${task.name}" iniciada correctamente.`)
+            if (!res.ok) {
+                console.error("Error executing task")
             }
         } catch (error) {
             console.error("Error executing task:", error)
+        } finally {
+            setRunningTaskId(null)
         }
     }
 
@@ -176,10 +182,15 @@ export default function TasksPage() {
                             e.stopPropagation();
                             handleRun(t);
                         }}
-                        className="p-1 text-gray-400 hover:text-green-600 transition-colors"
+                        disabled={runningTaskId === t.id}
+                        className={`p-1 transition-colors ${runningTaskId === t.id ? "text-purple-400 cursor-not-allowed" : "text-gray-400 hover:text-green-600"}`}
                         title="Ejecutar ahora"
                     >
-                        <Play size={18} />
+                        {runningTaskId === t.id ? (
+                            <Loader2 size={18} className="animate-spin" />
+                        ) : (
+                            <Play size={18} />
+                        )}
                     </button>
                     <button
                         onClick={(e) => {

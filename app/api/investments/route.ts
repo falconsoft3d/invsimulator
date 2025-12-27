@@ -19,6 +19,12 @@ export async function GET() {
                     include: {
                         currency: true
                     }
+                },
+                user: {
+                    select: {
+                        name: true,
+                        email: true
+                    }
                 }
             }
         })

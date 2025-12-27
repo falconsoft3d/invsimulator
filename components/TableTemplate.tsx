@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useMemo, useRef, useEffect } from "react"
-import { Plus, Settings, RefreshCw, Eye, ChevronLeft, ChevronRight, Download, Upload, EyeOff, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react"
+import { Plus, Settings, RefreshCw, Eye, ChevronLeft, ChevronRight, Download, Upload, EyeOff, ArrowUp, ArrowDown, ArrowUpDown, Trash2 } from "lucide-react"
 import Link from "next/link"
 import * as XLSX from "xlsx"
 
@@ -32,6 +32,7 @@ interface TableTemplateProps<T> {
   onSearch?: (term: string) => void
   actions?: (item: T) => React.ReactNode
   onRowClick?: (item: T) => void
+  onBulkDelete?: (selectedIds: string[]) => Promise<void>
 }
 
 export default function TableTemplate<T>({
@@ -54,6 +55,7 @@ export default function TableTemplate<T>({
   onSearch,
   actions,
   onRowClick,
+  onBulkDelete,
 }: TableTemplateProps<T>) {
   const [searchTerm, setSearchTerm] = useState("")
   const [currentPage, setCurrentPage] = useState(propCurrentPage)
@@ -61,22 +63,28 @@ export default function TableTemplate<T>({
   const [showColumnSettings, setShowColumnSettings] = useState(false)
   const [sortColumn, setSortColumn] = useState<string | null>(null)
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc")
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+
   const fileInputRef = useRef<HTMLInputElement>(null)
   const columnSettingsRef = useRef<HTMLDivElement>(null)
 
-  // Sync propCurrentPage with state (critical for Server Side pagination)
+  // Sync propCurrentPage with state
   useEffect(() => {
     setCurrentPage(propCurrentPage)
   }, [propCurrentPage])
 
-  // Cargar columnas visibles desde localStorage (solo en el cliente)
+  // Limpiar selección cuando cambian los datos o pagina
+  useEffect(() => {
+    setSelectedIds([])
+  }, [data, currentPage, searchTerm])
+
+  // Cargar columnas visibles desde localStorage
   useEffect(() => {
     const storageKey = `tableColumns_${title.replace(/\s+/g, '_')}`
     const saved = localStorage.getItem(storageKey)
     if (saved) {
       try {
         const parsed = JSON.parse(saved)
-        // Validar que todas las columnas guardadas existen
         const validColumns = parsed.filter((key: string) => columns.some(c => c.key === key))
         if (validColumns.length > 0) {
           setVisibleColumns(validColumns)
@@ -87,7 +95,7 @@ export default function TableTemplate<T>({
     }
   }, [title, columns])
 
-  // Guardar columnas visibles en localStorage cuando cambien
+  // Guardar columnas visibles en localStorage
   useEffect(() => {
     const storageKey = `tableColumns_${title.replace(/\s+/g, '_')}`
     localStorage.setItem(storageKey, JSON.stringify(visibleColumns))
@@ -158,10 +166,7 @@ export default function TableTemplate<T>({
   const endIndex = startIndex + safeItemsPerPage
   const paginatedData = isServerSide ? data : sortedData.slice(startIndex, endIndex)
 
-  /* Debug Pagination */
-  // console.log("Pagination:", { currentPage, totalPages, items: sortedData.length })
-
-  // Resetear página si cambia la búsqueda
+  // Handlers
   const handleSearch = (value: string) => {
     setSearchTerm(value)
     if (isServerSide && onSearch) {
@@ -173,7 +178,6 @@ export default function TableTemplate<T>({
 
   const goToPage = (page: number) => {
     const targetPage = Number(page)
-    console.log("GoToPage:", targetPage, "Total:", totalPages)
     if (targetPage >= 1 && targetPage <= totalPages) {
       if (isServerSide && onPageChange) {
         onPageChange(targetPage)
@@ -183,7 +187,6 @@ export default function TableTemplate<T>({
     }
   }
 
-  // Exportar a Excel
   const handleExportExcel = () => {
     const exportData = filteredData.map((item) => {
       const row: any = {}
@@ -202,7 +205,6 @@ export default function TableTemplate<T>({
     XLSX.writeFile(workbook, `${title}_${new Date().toISOString().split('T')[0]}.xlsx`)
   }
 
-  // Importar desde Excel
   const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -215,42 +217,53 @@ export default function TableTemplate<T>({
         const sheetName = workbook.SheetNames[0]
         const worksheet = workbook.Sheets[sheetName]
         const jsonData = XLSX.utils.sheet_to_json(worksheet)
-
-        console.log("Datos importados:", jsonData)
-        alert(`Se importaron ${jsonData.length} registros. Revisa la consola para ver los datos.`)
-
-        // Aquí puedes agregar lógica adicional para procesar los datos importados
+        alert(`Se importaron ${jsonData.length} registros. Revisa la consola.`)
       } catch (error) {
         console.error("Error al importar:", error)
         alert("Error al importar el archivo Excel")
       }
     }
     reader.readAsBinaryString(file)
-
-    // Reset input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ""
-    }
+    if (fileInputRef.current) fileInputRef.current.value = ""
   }
 
-  // Toggle visibilidad de columna
   const toggleColumn = (columnKey: string) => {
     setVisibleColumns((prev) =>
-      prev.includes(columnKey)
-        ? prev.filter((k) => k !== columnKey)
-        : [...prev, columnKey]
+      prev.includes(columnKey) ? prev.filter((k) => k !== columnKey) : [...prev, columnKey]
     )
   }
 
-  // Manejar ordenamiento
   const handleSort = (columnKey: string) => {
     if (sortColumn === columnKey) {
-      // Si ya está ordenado por esta columna, cambiar dirección
       setSortDirection(prev => prev === "asc" ? "desc" : "asc")
     } else {
-      // Nueva columna, ordenar ascendente
       setSortColumn(columnKey)
       setSortDirection("asc")
+    }
+  }
+
+  // Selection Logic
+  const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      const ids = paginatedData.map(item => getItemId(item))
+      setSelectedIds(ids)
+    } else {
+      setSelectedIds([])
+    }
+  }
+
+  const handleSelectRow = (id: string) => {
+    setSelectedIds(prev =>
+      prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]
+    )
+  }
+
+  const handleBulkDelete = async () => {
+    if (onBulkDelete && selectedIds.length > 0) {
+      if (confirm(`¿Estás seguro de eliminar ${selectedIds.length} elementos seleccionados?`)) {
+        await onBulkDelete(selectedIds)
+        setSelectedIds([])
+      }
     }
   }
 
@@ -264,6 +277,18 @@ export default function TableTemplate<T>({
           <span className="text-gray-900">{title}</span>
         </div>
         <div className="flex items-center gap-2">
+
+          {/* Botón de Borrado Masivo */}
+          {onBulkDelete && selectedIds.length > 0 && (
+            <button
+              onClick={handleBulkDelete}
+              className="flex items-center gap-2 px-3 py-2 bg-red-600 text-white text-sm rounded-md hover:bg-red-700 transition-colors mr-2"
+            >
+              <Trash2 size={16} />
+              Eliminar ({selectedIds.length})
+            </button>
+          )}
+
           <div className="relative" ref={columnSettingsRef}>
             <button
               onClick={() => setShowColumnSettings(!showColumnSettings)}
@@ -272,7 +297,7 @@ export default function TableTemplate<T>({
             >
               <Settings size={18} />
             </button>
-            
+
             {showColumnSettings && (
               <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-200 rounded-md shadow-lg z-50">
                 <div className="p-3 border-b border-gray-200">
@@ -302,7 +327,7 @@ export default function TableTemplate<T>({
               </div>
             )}
           </div>
-          
+
           <button
             onClick={handleExportExcel}
             className="p-2 text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
@@ -362,8 +387,13 @@ export default function TableTemplate<T>({
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="px-4 py-3 text-left">
-                  <input type="checkbox" className="rounded border-gray-300" />
+                <th className="px-4 py-3 text-left w-10">
+                  <input
+                    type="checkbox"
+                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                    onChange={handleSelectAll}
+                    checked={paginatedData.length > 0 && selectedIds.length === paginatedData.length}
+                  />
                 </th>
                 {columns.filter(col => visibleColumns.includes(col.key)).map((column) => (
                   <th
@@ -394,11 +424,14 @@ export default function TableTemplate<T>({
             </thead>
             <tbody className="divide-y divide-gray-100">
               {paginatedData.map((item) => {
+                const itemId = getItemId(item)
+                const isSelected = selectedIds.includes(itemId)
                 const editUrl = getEditUrl ? getEditUrl(item) : undefined
+
                 return (
                   <tr
-                    key={getItemId(item)}
-                    className="hover:bg-gray-50 transition-colors group cursor-pointer"
+                    key={itemId}
+                    className={`hover:bg-gray-50 transition-colors group cursor-pointer ${isSelected ? 'bg-purple-50' : ''}`}
                     onClick={() => {
                       if (onRowClick) {
                         onRowClick(item)
@@ -410,7 +443,12 @@ export default function TableTemplate<T>({
                     }}
                   >
                     <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                      <input type="checkbox" className="rounded border-gray-300" />
+                      <input
+                        type="checkbox"
+                        className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                        checked={isSelected}
+                        onChange={() => handleSelectRow(itemId)}
+                      />
                     </td>
                     {columns.filter(col => visibleColumns.includes(col.key)).map((column) => (
                       <td key={column.key} className="px-4 py-3 text-gray-900">

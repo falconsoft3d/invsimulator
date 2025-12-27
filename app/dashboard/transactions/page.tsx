@@ -10,7 +10,21 @@ export default async function TransactionsPage() {
         redirect("/login")
     }
 
+    // Obtener información del usuario actual para verificar rol
+    const currentUser = await prisma.user.findUnique({
+        where: { email: session.user?.email || "" },
+        select: { id: true, role: true }
+    })
+
+    if (!currentUser) {
+        redirect("/login")
+    }
+
+    // Si es admin, ve todo (where vacío). Si es usuario, filtra por su ID.
+    const whereClause: any = currentUser.role === "admin" ? {} : { userId: currentUser.id }
+
     const transactionsRaw = await prisma.stockInvestment.findMany({
+        where: whereClause,
         include: {
             user: {
                 select: {

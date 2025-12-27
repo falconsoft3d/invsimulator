@@ -1,6 +1,6 @@
 import { auth } from "@/auth"
 import { NextResponse } from "next/server"
-import { AIService } from "@/lib/ai/aiService"
+import { AIService } from "@/lib/ai/aiServiceV2"
 import { prisma } from "@/lib/prisma"
 
 /**
@@ -51,7 +51,8 @@ export async function POST(req: Request) {
         console.log(`[BOT] Ejecutando bot para usuario: ${user.name}`)
 
         // 1. Analizar y obtener recomendaciones
-        const recommendations = await AIService.analyzeAndRecommend(userId)
+        const analysisResult = await AIService.analyzeAndRecommend(userId)
+        const recommendations = analysisResult.recommendations
 
         console.log(`[BOT] Recomendaciones generadas: ${recommendations.length}`)
 
