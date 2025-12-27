@@ -22,7 +22,8 @@ import {
   Book,
   CreditCard,
   TrendingUp,
-  Star
+  Star,
+  ArrowLeftRight
 } from "lucide-react"
 import { signOut } from "next-auth/react"
 import { useState } from "react"
@@ -122,6 +123,20 @@ export default function Sidebar({ userName, userRole, userImage, isCollapsed, se
                 >
                   <TrendingUp className="shrink-0 w-5 h-5" />
                   {!isCollapsed && <span>Inversiones</span>}
+                </Link>
+
+                {/* Transacciones */}
+                <Link
+                  href="/dashboard/transactions"
+                  onClick={() => setIsOpen(false)}
+                  className={`flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-colors ${pathname === "/dashboard/transactions"
+                    ? "bg-gray-100 text-gray-900 font-medium"
+                    : "text-gray-600 hover:bg-gray-50"
+                    } ${isCollapsed ? "justify-center" : ""}`}
+                  title={isCollapsed ? "Transacciones" : ""}
+                >
+                  <ArrowLeftRight className="shrink-0 w-5 h-5" />
+                  {!isCollapsed && <span>Transacciones</span>}
                 </Link>
 
                 {/* Favoritos */}

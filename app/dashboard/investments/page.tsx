@@ -11,7 +11,7 @@ const CandleStick = (props: any) => {
     const isGrowing = openClose[1] > openClose[0]
     const color = isGrowing ? "#10b981" : "#ef4444"
     const ratio = Math.abs(height / (openClose[0] - openClose[1]))
-    
+
     return (
         <g stroke={color} fill="none" strokeWidth="2">
             {/* Línea vertical (mecha) */}
@@ -133,6 +133,8 @@ export default function InvestmentsPage() {
     const [availableCapital, setAvailableCapital] = useState(0)
     const [hiddenInvestments, setHiddenInvestments] = useState<Set<string>>(new Set())
     const [showHidden, setShowHidden] = useState(false)
+    const [showClosed, setShowClosed] = useState(false)
+    const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
     const [showStockExplorer, setShowStockExplorer] = useState(false)
     const [explorerSearchQuery, setExplorerSearchQuery] = useState("")
     const [explorerSearchResults, setExplorerSearchResults] = useState<Stock[]>([])
@@ -168,9 +170,51 @@ export default function InvestmentsPage() {
     })
     const [currentInvestment, setCurrentInvestment] = useState<Partial<Investment>>({})
 
+    // Cargar datos iniciales
     useEffect(() => {
         fetchData()
     }, [])
+
+    // Actualización automática cada 30 segundos
+    useEffect(() => {
+        const interval = setInterval(() => {
+            // Actualizar precios de inversiones
+            updateInvestmentPrices()
+        }, 30000) // 30 segundos
+
+        return () => clearInterval(interval)
+    }, [investments])
+
+    const updateInvestmentPrices = async () => {
+        if (investments.length === 0) return
+
+        try {
+            // Actualizar precio de cada inversión
+            for (const investment of investments) {
+                if (investment.status === "activa") {
+                    const quoteRes = await fetch(`/api/stocks/quote?symbol=${investment.symbol}`)
+                    if (quoteRes.ok) {
+                        const quoteData = await quoteRes.json()
+                        if (quoteData.price) {
+                            // Actualizar precio en el servidor
+                            await fetch(`/api/investments/${investment.id}`, {
+                                method: "PATCH",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                    currentPrice: quoteData.price
+                                })
+                            })
+                        }
+                    }
+                }
+            }
+            // Recargar datos después de actualizar
+            await fetchData()
+            setLastUpdate(new Date())
+        } catch (error) {
+            console.error("Error updating prices:", error)
+        }
+    }
 
     const fetchData = async () => {
         try {
@@ -201,7 +245,7 @@ export default function InvestmentsPage() {
             if (favoritesRes.ok) {
                 const favoritesData = await favoritesRes.json()
                 setFavorites(favoritesData)
-                
+
                 // Cargar datos de cotización y gráficos para cada favorito
                 favoritesData.forEach((fav: Favorite) => {
                     loadFavoriteData(fav.symbol)
@@ -212,17 +256,17 @@ export default function InvestmentsPage() {
             if (paymentsRes.ok && userRes.ok) {
                 const paymentsData = await paymentsRes.json()
                 const currentUser = await userRes.json()
-                
+
                 // Filtrar pagos del usuario actual
                 const userPayments = paymentsData.filter((p: any) => p.userId === currentUser.id)
-                
+
                 const totalEntradas = userPayments
                     .filter((p: any) => p.type === "Entrada")
                     .reduce((sum: number, p: any) => sum + Number(p.amount), 0)
                 const totalSalidas = userPayments
                     .filter((p: any) => p.type === "Salida")
                     .reduce((sum: number, p: any) => sum + Number(p.amount), 0)
-                
+
                 // Capital = Entradas - Salidas
                 const capital = totalEntradas - totalSalidas
                 setAvailableCapital(capital)
@@ -267,30 +311,14 @@ export default function InvestmentsPage() {
 
     const handleCloseOperation = async (investment: Investment) => {
         if (investment.status !== "activa") {
-            // Si ya está finalizada, solo eliminar
-            setConfirmTitle("Eliminar Operación Finalizada")
-            setConfirmMessage("¿Eliminar esta operación finalizada de la lista?")
-            setConfirmAction(() => async () => {
-                try {
-                    const res = await fetch(`/api/investments/${investment.id}`, {
-                        method: "DELETE",
-                    })
-                    if (res.ok) {
-                        await fetchData()
-                    }
-                } catch (error) {
-                    console.error("Error closing operation:", error)
-                }
-                setShowConfirmModal(false)
-            })
-            setShowConfirmModal(true)
+            alert("Esta operación ya está cerrada")
             return
         }
 
         const shares = Number(investment.shares)
         const isShortPosition = shares < 0 // Posición corta si shares es negativo
         const absShares = Math.abs(shares)
-        
+
         // Obtener usuario actual
         const userRes = await fetch("/api/user/profile")
         const currentUser = await userRes.json()
@@ -326,16 +354,33 @@ export default function InvestmentsPage() {
                         })
                     }
 
-                    // Eliminar la inversión
-                    await fetch(`/api/investments/${investment.id}`, {
-                        method: "DELETE",
+                    // Marcar como cerrada en lugar de eliminar
+                    const response = await fetch(`/api/investments/${investment.id}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            status: "cerrada",
+                            closeDate: new Date().toISOString(),
+                            closePrice: Number(investment.currentPrice)
+                        })
                     })
 
-                    await fetchData()
+                    if (response.ok) {
+                        // Actualizar estado local inmediatamente
+                        setInvestments(prev =>
+                            prev.map(inv =>
+                                inv.id === investment.id
+                                    ? { ...inv, status: "cerrada" as const }
+                                    : inv
+                            )
+                        )
+                        await fetchData()
+                    }
+                    setShowConfirmModal(false)
                 } catch (error) {
                     console.error("Error closing short position:", error)
+                    setShowConfirmModal(false)
                 }
-                setShowConfirmModal(false)
             })
         } else {
             // Cerrar posición larga: vender acciones
@@ -368,19 +413,36 @@ export default function InvestmentsPage() {
                         })
                     }
 
-                    // Eliminar la inversión
-                    await fetch(`/api/investments/${investment.id}`, {
-                        method: "DELETE",
+                    // Marcar como cerrada en lugar de eliminar
+                    const response = await fetch(`/api/investments/${investment.id}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            status: "cerrada",
+                            closeDate: new Date().toISOString(),
+                            closePrice: Number(investment.currentPrice)
+                        })
                     })
 
-                    await fetchData()
+                    if (response.ok) {
+                        // Actualizar estado local inmediatamente
+                        setInvestments(prev =>
+                            prev.map(inv =>
+                                inv.id === investment.id
+                                    ? { ...inv, status: "cerrada" as const }
+                                    : inv
+                            )
+                        )
+                        await fetchData()
+                    }
+                    setShowConfirmModal(false)
                 } catch (error) {
                     console.error("Error closing operation:", error)
+                    setShowConfirmModal(false)
                 }
-                setShowConfirmModal(false)
             })
         }
-        
+
         setShowConfirmModal(true)
     }
 
@@ -439,7 +501,7 @@ export default function InvestmentsPage() {
                 price: 0,
                 journalId: ""
             })
-            setSearchQuery("")           
+            setSearchQuery("")
             setCurrentInvestment({})
         }
         setShowSuggestions(false)
@@ -449,7 +511,7 @@ export default function InvestmentsPage() {
 
     const handleSearchChange = async (value: string) => {
         setSearchQuery(value)
-        
+
         if (value.length < 1) {
             setShowSuggestions(false)
             setSearchResults([])
@@ -478,7 +540,7 @@ export default function InvestmentsPage() {
     const handleSelectStock = async (stock: Stock) => {
         setSearchQuery(stock.symbol + " - " + stock.name)
         setShowSuggestions(false)
-        
+
         // Obtener precio actual de la acción
         try {
             const response = await fetch(`/api/stocks/quote?symbol=${encodeURIComponent(stock.symbol)}`)
@@ -517,7 +579,7 @@ export default function InvestmentsPage() {
                 const totalCost = tradeData.shares * tradeData.price
                 const commission = totalCost * (brokerBuyCommission / 100)
                 const totalWithCommission = totalCost + commission
-                
+
                 // Obtener usuario actual
                 const userRes = await fetch("/api/user/profile")
                 const currentUser = await userRes.json()
@@ -559,7 +621,7 @@ export default function InvestmentsPage() {
                 const commission = sellValue * (brokerSellCommission / 100)
                 const netSellValue = sellValue - commission
                 const investment = currentInvestment as Investment
-                
+
                 // Obtener usuario actual
                 const userRes = await fetch("/api/user/profile")
                 const currentUser = await userRes.json()
@@ -659,38 +721,38 @@ export default function InvestmentsPage() {
     const totals = calculateTotals()
 
     const columns = [
-        { 
-            key: "symbol", 
+        {
+            key: "symbol",
             label: "Símbolo",
             render: (item: Investment) => item.symbol
         },
-        { 
-            key: "name", 
+        {
+            key: "name",
             label: "Empresa",
             render: (item: Investment) => item.name
         },
-        { 
-            key: "buyPrice", 
+        {
+            key: "buyPrice",
             label: "Precio Compra",
             render: (item: Investment) => `$${Number(item.buyPrice).toFixed(2)}`
         },
-        { 
-            key: "currentPrice", 
+        {
+            key: "currentPrice",
             label: "Precio Actual",
             render: (item: Investment) => `$${Number(item.currentPrice).toFixed(2)}`
         },
-        { 
-            key: "totalInvested", 
+        {
+            key: "totalInvested",
             label: "Invertido",
             render: (item: Investment) => `$${Number(item.totalInvested).toFixed(2)}`
         },
-        { 
-            key: "currentValue", 
+        {
+            key: "currentValue",
             label: "Valor Actual",
             render: (item: Investment) => `$${Number(item.currentValue).toFixed(2)}`
         },
-        { 
-            key: "profitLoss", 
+        {
+            key: "profitLoss",
             label: "Ganancia/Pérdida",
             render: (item: Investment) => {
                 const pl = Number(item.profitLoss)
@@ -703,18 +765,24 @@ export default function InvestmentsPage() {
                 )
             }
         },
-        { 
-            key: "buyDate", 
-            label: "Fecha Compra",
-            render: (item: Investment) => new Date(item.buyDate).toLocaleDateString()
+        {
+            key: "buyDate",
+            label: "Fecha y Hora Compra",
+            render: (item: Investment) => new Date(item.buyDate).toLocaleString('es-ES', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            })
         },
         {
             key: "status",
             label: "Estado",
             render: (item: Investment) => (
-                <span className={`px-2 py-1 rounded text-xs ${
-                    item.status === "activa" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"
-                }`}>
+                <span className={`px-2 py-1 rounded text-xs ${item.status === "activa" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"
+                    }`}>
                     {item.status}
                 </span>
             )
@@ -750,32 +818,36 @@ export default function InvestmentsPage() {
                     <TrendingDown size={16} />
                 </button>
             )}
-            <button
-                onClick={(e) => {
-                    e.stopPropagation()
-                    handleCloseOperation(item)
-                }}
-                className="text-blue-600 hover:text-blue-700"
-                title="Cerrar operación"
-            >
-                <X size={16} />
-            </button>
-            <button
-                onClick={(e) => {
-                    e.stopPropagation()
-                    handleDelete(item.id)
-                }}
-                className="text-red-600 hover:text-red-700"
-                title="Eliminar permanentemente"
-            >
-                <Trash2 size={16} />
-            </button>
+            {item.status === "activa" && (
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        handleCloseOperation(item)
+                    }}
+                    className="text-blue-600 hover:text-blue-700"
+                    title="Cerrar operación"
+                >
+                    <X size={16} />
+                </button>
+            )}
+            {item.status === "cerrada" && (
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        handleDelete(item.id)
+                    }}
+                    className="text-red-600 hover:text-red-700"
+                    title="Eliminar permanentemente"
+                >
+                    <Trash2 size={16} />
+                </button>
+            )}
         </div>
     )
 
     const handleSearchFavorite = async (value: string) => {
         setFavoriteSearch(value)
-        
+
         if (value.length < 1) {
             setFavoriteSearchResults([])
             return
@@ -845,7 +917,7 @@ export default function InvestmentsPage() {
         setSearchQuery(favorite.symbol + " - " + favorite.name)
         setCurrentInvestment({})
         setIsTrading(true)
-        
+
         // Obtener precio actual
         fetch(`/api/stocks/quote?symbol=${encodeURIComponent(favorite.symbol)}`)
             .then(res => res.json())
@@ -869,7 +941,7 @@ export default function InvestmentsPage() {
         setSearchQuery(favorite.symbol + " - " + favorite.name)
         setCurrentInvestment({})
         setIsTrading(true)
-        
+
         // Obtener precio actual
         fetch(`/api/stocks/quote?symbol=${encodeURIComponent(favorite.symbol)}`)
             .then(res => res.json())
@@ -883,7 +955,7 @@ export default function InvestmentsPage() {
 
     const handleExplorerSearch = async (value: string) => {
         setExplorerSearchQuery(value)
-        
+
         if (value.length < 1) {
             setExplorerSearchResults([])
             return
@@ -910,7 +982,7 @@ export default function InvestmentsPage() {
         setSelectedStock(stock)
         setExplorerSearchQuery("")
         setExplorerSearchResults([])
-        
+
         // Obtener cotización actual
         try {
             const response = await fetch(`/api/stocks/quote?symbol=${encodeURIComponent(stock.symbol)}`)
@@ -970,7 +1042,7 @@ export default function InvestmentsPage() {
 
     const loadFavoriteData = async (symbol: string) => {
         setLoadingFavorites(prev => new Set(prev).add(symbol))
-        
+
         try {
             // Cargar cotización actual
             const quoteRes = await fetch(`/api/stocks/quote?symbol=${encodeURIComponent(symbol)}`)
@@ -1012,8 +1084,24 @@ export default function InvestmentsPage() {
                         <p className="text-gray-600 mt-1">
                             Simula y gestiona tus inversiones en el mercado de valores
                         </p>
+                        {lastUpdate && (
+                            <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                                <span className="inline-block w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                                Última actualización: {lastUpdate.toLocaleTimeString('es-ES')}
+                            </p>
+                        )}
                     </div>
                     <div className="flex gap-3">
+                        <button
+                            onClick={() => updateInvestmentPrices()}
+                            className="bg-gray-100 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-200 flex items-center gap-2"
+                            title="Actualizar precios"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+                            </svg>
+                            Actualizar
+                        </button>
                         <button
                             onClick={handleBuy}
                             className="bg-gray-900 text-white px-4 py-2 rounded-md hover:bg-gray-800 flex items-center gap-2"
@@ -1061,7 +1149,7 @@ export default function InvestmentsPage() {
                                         placeholder="Buscar acción por símbolo o nombre..."
                                     />
                                     <Search className="absolute left-3 top-3.5 text-gray-400" size={20} />
-                                    
+
                                     {explorerSearchQuery && explorerSearchResults.length > 0 && (
                                         <div className="absolute z-[100] w-full mt-2 bg-white border-2 border-blue-500 rounded-lg shadow-2xl max-h-64 overflow-y-auto">
                                             {isExplorerSearching ? (
@@ -1113,17 +1201,15 @@ export default function InvestmentsPage() {
                                             </div>
                                             <div className="bg-white rounded-lg p-4 shadow-sm">
                                                 <p className="text-xs text-gray-500 uppercase mb-1">Cambio</p>
-                                                <p className={`text-2xl font-bold ${
-                                                    (stockQuote.change || 0) >= 0 ? 'text-green-600' : 'text-red-600'
-                                                }`}>
+                                                <p className={`text-2xl font-bold ${(stockQuote.change || 0) >= 0 ? 'text-green-600' : 'text-red-600'
+                                                    }`}>
                                                     {(stockQuote.change || 0) >= 0 ? '+' : ''}{stockQuote.change?.toFixed(2) || 'N/A'}
                                                 </p>
                                             </div>
                                             <div className="bg-white rounded-lg p-4 shadow-sm">
                                                 <p className="text-xs text-gray-500 uppercase mb-1">% Cambio</p>
-                                                <p className={`text-2xl font-bold ${
-                                                    (stockQuote.changePercent || 0) >= 0 ? 'text-green-600' : 'text-red-600'
-                                                }`}>
+                                                <p className={`text-2xl font-bold ${(stockQuote.changePercent || 0) >= 0 ? 'text-green-600' : 'text-red-600'
+                                                    }`}>
                                                     {(stockQuote.changePercent || 0) >= 0 ? '+' : ''}{stockQuote.changePercent?.toFixed(2) || 'N/A'}%
                                                 </p>
                                             </div>
@@ -1140,237 +1226,234 @@ export default function InvestmentsPage() {
                                     <div className="mt-4">
                                         {/* Controles del gráfico */}
                                         <div className="flex justify-between items-center mb-3">
-                                                <div className="flex gap-2">
-                                                    <button
-                                                        onClick={() => setChartType("line")}
-                                                        className={`px-3 py-1.5 rounded-md text-sm flex items-center gap-1 transition-colors ${
-                                                            chartType === "line" 
-                                                                ? "bg-gray-900 text-white" 
-                                                                : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
+                                            <div className="flex gap-2">
+                                                <button
+                                                    onClick={() => setChartType("line")}
+                                                    className={`px-3 py-1.5 rounded-md text-sm flex items-center gap-1 transition-colors ${chartType === "line"
+                                                        ? "bg-gray-900 text-white"
+                                                        : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
                                                         }`}
-                                                    >
-                                                        <TrendingUpIcon size={16} />
-                                                        Líneas
-                                                    </button>
-                                                    <button
-                                                        onClick={() => setChartType("candlestick")}
-                                                        className={`px-3 py-1.5 rounded-md text-sm flex items-center gap-1 transition-colors ${
-                                                            chartType === "candlestick" 
-                                                                ? "bg-gray-900 text-white" 
-                                                                : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
+                                                >
+                                                    <TrendingUpIcon size={16} />
+                                                    Líneas
+                                                </button>
+                                                <button
+                                                    onClick={() => setChartType("candlestick")}
+                                                    className={`px-3 py-1.5 rounded-md text-sm flex items-center gap-1 transition-colors ${chartType === "candlestick"
+                                                        ? "bg-gray-900 text-white"
+                                                        : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
                                                         }`}
-                                                    >
-                                                        <BarChart3 size={16} />
-                                                        Velas
-                                                    </button>
-                                                </div>
-                                                <div className="flex gap-1">
-                                                    {["1d", "5d", "1mo", "3mo", "6mo", "1y"].map((period) => (
-                                                        <button
-                                                            key={period}
-                                                            onClick={() => handlePeriodChange(period)}
-                                                            className={`px-2 py-1 rounded text-xs transition-colors ${
-                                                                chartPeriod === period
-                                                                    ? "bg-gray-900 text-white"
-                                                                    : "bg-white text-gray-700 hover:bg-gray-100"
-                                                            }`}
-                                                        >
-                                                            {period.toUpperCase()}
-                                                        </button>
-                                                    ))}
-                                                </div>
+                                                >
+                                                    <BarChart3 size={16} />
+                                                    Velas
+                                                </button>
                                             </div>
-
-                                            {/* Contenedor del gráfico */}
-                                            <div className="bg-white rounded-lg p-4 border border-gray-200">
-                                                {isLoadingChart ? (
-                                                    <div className="h-80 flex items-center justify-center">
-                                                        <div className="text-gray-500">Cargando gráfico...</div>
-                                                    </div>
-                                                ) : historicalData.length === 0 ? (
-                                                    <div className="h-80 flex flex-col items-center justify-center gap-2">
-                                                        <div className="text-gray-500 text-lg">No hay datos disponibles</div>
-                                                        <div className="text-gray-400 text-sm">Intenta con otro período o acción</div>
-                                                    </div>
-                                                ) : chartType === "line" ? (
-                                                    <ResponsiveContainer width="100%" height={320}>
-                                                        <AreaChart data={historicalData}>
-                                                            <defs>
-                                                                <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                                                                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                                                                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                                                                </linearGradient>
-                                                            </defs>
-                                                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                                                            <XAxis 
-                                                                dataKey="date" 
-                                                                tickFormatter={(value) => new Date(value).toLocaleDateString('es-ES', { 
-                                                                    month: 'short', 
-                                                                    day: 'numeric' 
-                                                                })}
-                                                                stroke="#6b7280"
-                                                                style={{ fontSize: '12px' }}
-                                                            />
-                                                            <YAxis 
-                                                                domain={['auto', 'auto']}
-                                                                tickFormatter={(value) => `$${value.toFixed(2)}`}
-                                                                stroke="#6b7280"
-                                                                style={{ fontSize: '12px' }}
-                                                            />
-                                                            <Tooltip 
-                                                                content={({ active, payload }) => {
-                                                                    if (active && payload && payload.length) {
-                                                                        const data = payload[0].payload
-                                                                        return (
-                                                                            <div className="bg-white p-3 rounded-lg shadow-lg border border-gray-200">
-                                                                                <p className="text-xs text-gray-500 mb-1">
-                                                                                    {new Date(data.date).toLocaleDateString('es-ES', { 
-                                                                                        year: 'numeric',
-                                                                                        month: 'long', 
-                                                                                        day: 'numeric' 
-                                                                                    })}
-                                                                                </p>
-                                                                                <p className="text-sm font-bold text-gray-900">
-                                                                                    Precio: ${data.close.toFixed(2)}
-                                                                                </p>
-                                                                                <p className="text-xs text-gray-600">
-                                                                                    Volumen: {data.volume.toLocaleString()}
-                                                                                </p>
-                                                                            </div>
-                                                                        )
-                                                                    }
-                                                                    return null
-                                                                }}
-                                                            />
-                                                            <Area 
-                                                                type="monotone" 
-                                                                dataKey="close" 
-                                                                stroke="#3b82f6" 
-                                                                strokeWidth={2}
-                                                                fill="url(#colorPrice)"
-                                                                dot={false}
-                                                            />
-                                                        </AreaChart>
-                                                    </ResponsiveContainer>
-                                                ) : (
-                                                    <ResponsiveContainer width="100%" height={320}>
-                                                        <ComposedChart data={historicalData}>
-                                                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                                                            <XAxis 
-                                                                dataKey="date" 
-                                                                tickFormatter={(value) => new Date(value).toLocaleDateString('es-ES', { 
-                                                                    month: 'short', 
-                                                                    day: 'numeric' 
-                                                                })}
-                                                                stroke="#6b7280"
-                                                                style={{ fontSize: '12px' }}
-                                                            />
-                                                            <YAxis 
-                                                                domain={['auto', 'auto']}
-                                                                tickFormatter={(value) => `$${value.toFixed(2)}`}
-                                                                stroke="#6b7280"
-                                                                style={{ fontSize: '12px' }}
-                                                            />
-                                                            <Tooltip 
-                                                                content={({ active, payload }) => {
-                                                                    if (active && payload && payload.length) {
-                                                                        const data = payload[0].payload
-                                                                        const change = data.close - data.open
-                                                                        const changePercent = ((change / data.open) * 100)
-                                                                        const isPositive = change >= 0
-                                                                        return (
-                                                                            <div className="bg-white p-3 rounded-lg shadow-lg border border-gray-200">
-                                                                                <p className="text-xs text-gray-500 mb-2">
-                                                                                    {new Date(data.date).toLocaleDateString('es-ES', { 
-                                                                                        year: 'numeric',
-                                                                                        month: 'long', 
-                                                                                        day: 'numeric' 
-                                                                                    })}
-                                                                                </p>
-                                                                                <div className="space-y-1">
-                                                                                    <div className="flex justify-between gap-3">
-                                                                                        <span className="text-xs text-gray-600">Apertura:</span>
-                                                                                        <span className="text-xs font-semibold">${data.open.toFixed(2)}</span>
-                                                                                    </div>
-                                                                                    <div className="flex justify-between gap-3">
-                                                                                        <span className="text-xs text-gray-600">Máximo:</span>
-                                                                                        <span className="text-xs font-semibold text-green-600">${data.high.toFixed(2)}</span>
-                                                                                    </div>
-                                                                                    <div className="flex justify-between gap-3">
-                                                                                        <span className="text-xs text-gray-600">Mínimo:</span>
-                                                                                        <span className="text-xs font-semibold text-red-600">${data.low.toFixed(2)}</span>
-                                                                                    </div>
-                                                                                    <div className="flex justify-between gap-3">
-                                                                                        <span className="text-xs text-gray-600">Cierre:</span>
-                                                                                        <span className="text-xs font-bold text-gray-900">${data.close.toFixed(2)}</span>
-                                                                                    </div>
-                                                                                    <div className="flex justify-between gap-3 pt-1 border-t border-gray-200">
-                                                                                        <span className="text-xs text-gray-600">Cambio:</span>
-                                                                                        <span className={`text-xs font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                                                                                            {isPositive ? '+' : ''}{change.toFixed(2)} ({isPositive ? '+' : ''}{changePercent.toFixed(2)}%)
-                                                                                        </span>
-                                                                                    </div>
-                                                                                    <div className="flex justify-between gap-3">
-                                                                                        <span className="text-xs text-gray-600">Volumen:</span>
-                                                                                        <span className="text-xs font-semibold">{data.volume.toLocaleString()}</span>
-                                                                                    </div>
-                                                                                </div>
-                                                                            </div>
-                                                                        )
-                                                                    }
-                                                                    return null
-                                                                }}
-                                                            />
-                                                            <Bar
-                                                                dataKey="openClose"
-                                                                shape={(props: any) => {
-                                                                    const { x, y, width, height, payload } = props
-                                                                    const isGrowing = payload.close >= payload.open
-                                                                    const color = isGrowing ? "#10b981" : "#ef4444"
-                                                                    const yHigh = y - ((payload.high - payload.close) / (payload.high - payload.low)) * height
-                                                                    const yLow = y + ((payload.open - payload.low) / (payload.high - payload.low)) * height
-                                                                    const yOpen = y + ((payload.close - payload.open) / (payload.high - payload.low)) * height
-                                                                    const bodyHeight = Math.abs(yOpen - y)
-                                                                    
-                                                                    return (
-                                                                        <g>
-                                                                            {/* Mecha superior */}
-                                                                            <line
-                                                                                x1={x + width / 2}
-                                                                                y1={yHigh}
-                                                                                x2={x + width / 2}
-                                                                                y2={isGrowing ? y : yOpen}
-                                                                                stroke={color}
-                                                                                strokeWidth={1}
-                                                                            />
-                                                                            {/* Cuerpo de la vela */}
-                                                                            <rect
-                                                                                x={x + width * 0.25}
-                                                                                y={isGrowing ? y : yOpen}
-                                                                                width={width * 0.5}
-                                                                                height={bodyHeight || 1}
-                                                                                fill={color}
-                                                                                stroke={color}
-                                                                                strokeWidth={1}
-                                                                            />
-                                                                            {/* Mecha inferior */}
-                                                                            <line
-                                                                                x1={x + width / 2}
-                                                                                y1={isGrowing ? yOpen : y}
-                                                                                x2={x + width / 2}
-                                                                                y2={yLow}
-                                                                                stroke={color}
-                                                                                strokeWidth={1}
-                                                                            />
-                                                                        </g>
-                                                                    )
-                                                                }}
-                                                            />
-                                                        </ComposedChart>
-                                                    </ResponsiveContainer>
-                                                )}
+                                            <div className="flex gap-1">
+                                                {["1d", "5d", "1mo", "3mo", "6mo", "1y"].map((period) => (
+                                                    <button
+                                                        key={period}
+                                                        onClick={() => handlePeriodChange(period)}
+                                                        className={`px-2 py-1 rounded text-xs transition-colors ${chartPeriod === period
+                                                            ? "bg-gray-900 text-white"
+                                                            : "bg-white text-gray-700 hover:bg-gray-100"
+                                                            }`}
+                                                    >
+                                                        {period.toUpperCase()}
+                                                    </button>
+                                                ))}
                                             </div>
                                         </div>
+
+                                        {/* Contenedor del gráfico */}
+                                        <div className="bg-white rounded-lg p-4 border border-gray-200">
+                                            {isLoadingChart ? (
+                                                <div className="h-80 flex items-center justify-center">
+                                                    <div className="text-gray-500">Cargando gráfico...</div>
+                                                </div>
+                                            ) : historicalData.length === 0 ? (
+                                                <div className="h-80 flex flex-col items-center justify-center gap-2">
+                                                    <div className="text-gray-500 text-lg">No hay datos disponibles</div>
+                                                    <div className="text-gray-400 text-sm">Intenta con otro período o acción</div>
+                                                </div>
+                                            ) : chartType === "line" ? (
+                                                <ResponsiveContainer width="100%" height={320}>
+                                                    <AreaChart data={historicalData}>
+                                                        <defs>
+                                                            <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
+                                                                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+                                                                <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                                                            </linearGradient>
+                                                        </defs>
+                                                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                                                        <XAxis
+                                                            dataKey="date"
+                                                            tickFormatter={(value) => new Date(value).toLocaleDateString('es-ES', {
+                                                                month: 'short',
+                                                                day: 'numeric'
+                                                            })}
+                                                            stroke="#6b7280"
+                                                            style={{ fontSize: '12px' }}
+                                                        />
+                                                        <YAxis
+                                                            domain={['auto', 'auto']}
+                                                            tickFormatter={(value) => `$${value.toFixed(2)}`}
+                                                            stroke="#6b7280"
+                                                            style={{ fontSize: '12px' }}
+                                                        />
+                                                        <Tooltip
+                                                            content={({ active, payload }) => {
+                                                                if (active && payload && payload.length) {
+                                                                    const data = payload[0].payload
+                                                                    return (
+                                                                        <div className="bg-white p-3 rounded-lg shadow-lg border border-gray-200">
+                                                                            <p className="text-xs text-gray-500 mb-1">
+                                                                                {new Date(data.date).toLocaleDateString('es-ES', {
+                                                                                    year: 'numeric',
+                                                                                    month: 'long',
+                                                                                    day: 'numeric'
+                                                                                })}
+                                                                            </p>
+                                                                            <p className="text-sm font-bold text-gray-900">
+                                                                                Precio: ${data.close.toFixed(2)}
+                                                                            </p>
+                                                                            <p className="text-xs text-gray-600">
+                                                                                Volumen: {data.volume.toLocaleString()}
+                                                                            </p>
+                                                                        </div>
+                                                                    )
+                                                                }
+                                                                return null
+                                                            }}
+                                                        />
+                                                        <Area
+                                                            type="monotone"
+                                                            dataKey="close"
+                                                            stroke="#3b82f6"
+                                                            strokeWidth={2}
+                                                            fill="url(#colorPrice)"
+                                                            dot={false}
+                                                        />
+                                                    </AreaChart>
+                                                </ResponsiveContainer>
+                                            ) : (
+                                                <ResponsiveContainer width="100%" height={320}>
+                                                    <ComposedChart data={historicalData}>
+                                                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                                                        <XAxis
+                                                            dataKey="date"
+                                                            tickFormatter={(value) => new Date(value).toLocaleDateString('es-ES', {
+                                                                month: 'short',
+                                                                day: 'numeric'
+                                                            })}
+                                                            stroke="#6b7280"
+                                                            style={{ fontSize: '12px' }}
+                                                        />
+                                                        <YAxis
+                                                            domain={['auto', 'auto']}
+                                                            tickFormatter={(value) => `$${value.toFixed(2)}`}
+                                                            stroke="#6b7280"
+                                                            style={{ fontSize: '12px' }}
+                                                        />
+                                                        <Tooltip
+                                                            content={({ active, payload }) => {
+                                                                if (active && payload && payload.length) {
+                                                                    const data = payload[0].payload
+                                                                    const change = data.close - data.open
+                                                                    const changePercent = ((change / data.open) * 100)
+                                                                    const isPositive = change >= 0
+                                                                    return (
+                                                                        <div className="bg-white p-3 rounded-lg shadow-lg border border-gray-200">
+                                                                            <p className="text-xs text-gray-500 mb-2">
+                                                                                {new Date(data.date).toLocaleDateString('es-ES', {
+                                                                                    year: 'numeric',
+                                                                                    month: 'long',
+                                                                                    day: 'numeric'
+                                                                                })}
+                                                                            </p>
+                                                                            <div className="space-y-1">
+                                                                                <div className="flex justify-between gap-3">
+                                                                                    <span className="text-xs text-gray-600">Apertura:</span>
+                                                                                    <span className="text-xs font-semibold">${data.open.toFixed(2)}</span>
+                                                                                </div>
+                                                                                <div className="flex justify-between gap-3">
+                                                                                    <span className="text-xs text-gray-600">Máximo:</span>
+                                                                                    <span className="text-xs font-semibold text-green-600">${data.high.toFixed(2)}</span>
+                                                                                </div>
+                                                                                <div className="flex justify-between gap-3">
+                                                                                    <span className="text-xs text-gray-600">Mínimo:</span>
+                                                                                    <span className="text-xs font-semibold text-red-600">${data.low.toFixed(2)}</span>
+                                                                                </div>
+                                                                                <div className="flex justify-between gap-3">
+                                                                                    <span className="text-xs text-gray-600">Cierre:</span>
+                                                                                    <span className="text-xs font-bold text-gray-900">${data.close.toFixed(2)}</span>
+                                                                                </div>
+                                                                                <div className="flex justify-between gap-3 pt-1 border-t border-gray-200">
+                                                                                    <span className="text-xs text-gray-600">Cambio:</span>
+                                                                                    <span className={`text-xs font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+                                                                                        {isPositive ? '+' : ''}{change.toFixed(2)} ({isPositive ? '+' : ''}{changePercent.toFixed(2)}%)
+                                                                                    </span>
+                                                                                </div>
+                                                                                <div className="flex justify-between gap-3">
+                                                                                    <span className="text-xs text-gray-600">Volumen:</span>
+                                                                                    <span className="text-xs font-semibold">{data.volume.toLocaleString()}</span>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    )
+                                                                }
+                                                                return null
+                                                            }}
+                                                        />
+                                                        <Bar
+                                                            dataKey="openClose"
+                                                            shape={(props: any) => {
+                                                                const { x, y, width, height, payload } = props
+                                                                const isGrowing = payload.close >= payload.open
+                                                                const color = isGrowing ? "#10b981" : "#ef4444"
+                                                                const yHigh = y - ((payload.high - payload.close) / (payload.high - payload.low)) * height
+                                                                const yLow = y + ((payload.open - payload.low) / (payload.high - payload.low)) * height
+                                                                const yOpen = y + ((payload.close - payload.open) / (payload.high - payload.low)) * height
+                                                                const bodyHeight = Math.abs(yOpen - y)
+
+                                                                return (
+                                                                    <g>
+                                                                        {/* Mecha superior */}
+                                                                        <line
+                                                                            x1={x + width / 2}
+                                                                            y1={yHigh}
+                                                                            x2={x + width / 2}
+                                                                            y2={isGrowing ? y : yOpen}
+                                                                            stroke={color}
+                                                                            strokeWidth={1}
+                                                                        />
+                                                                        {/* Cuerpo de la vela */}
+                                                                        <rect
+                                                                            x={x + width * 0.25}
+                                                                            y={isGrowing ? y : yOpen}
+                                                                            width={width * 0.5}
+                                                                            height={bodyHeight || 1}
+                                                                            fill={color}
+                                                                            stroke={color}
+                                                                            strokeWidth={1}
+                                                                        />
+                                                                        {/* Mecha inferior */}
+                                                                        <line
+                                                                            x1={x + width / 2}
+                                                                            y1={isGrowing ? yOpen : y}
+                                                                            x2={x + width / 2}
+                                                                            y2={yLow}
+                                                                            stroke={color}
+                                                                            strokeWidth={1}
+                                                                        />
+                                                                    </g>
+                                                                )
+                                                            }}
+                                                        />
+                                                    </ComposedChart>
+                                                </ResponsiveContainer>
+                                            )}
+                                        </div>
+                                    </div>
 
                                     <div className="flex gap-2 mt-4">
                                         <button
@@ -1439,7 +1522,7 @@ export default function InvestmentsPage() {
                         <TrendingUp className="text-blue-500" size={32} />
                     </div>
                 </div>
-                
+
                 <div className="bg-white p-4 rounded-lg border border-gray-200">
                     <div className="flex items-center justify-between">
                         <div>
@@ -1517,7 +1600,7 @@ export default function InvestmentsPage() {
                                     placeholder="Buscar por símbolo o nombre (ej: AAPL, Apple, Tesla...)"
                                 />
                                 <Search className="absolute right-3 top-2.5 text-gray-400" size={20} />
-                                
+
                                 {/* Resultados de búsqueda */}
                                 {showSuggestions && (
                                     <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-64 overflow-y-auto">
@@ -1656,8 +1739,8 @@ export default function InvestmentsPage() {
                                 ))}
                             </select>
                             <p className="text-xs text-gray-500 mt-1">
-                                {tradeType === 'buy' 
-                                    ? 'Se creará un pago de salida por la compra' 
+                                {tradeType === 'buy'
+                                    ? 'Se creará un pago de salida por la compra'
                                     : 'Se creará un pago de entrada por la venta'
                                 }
                             </p>
@@ -1667,10 +1750,10 @@ export default function InvestmentsPage() {
                     {/* Resumen de Operación */}
                     {tradeData.shares > 0 && tradeData.price > 0 && (() => {
                         const subtotal = tradeData.shares * tradeData.price
-                        const commission = tradeType === 'buy' 
+                        const commission = tradeType === 'buy'
                             ? subtotal * (brokerBuyCommission / 100)
                             : subtotal * (brokerSellCommission / 100)
-                        const total = tradeType === 'buy' 
+                        const total = tradeType === 'buy'
                             ? subtotal + commission
                             : subtotal - commission
 
@@ -1684,7 +1767,7 @@ export default function InvestmentsPage() {
                                             ${subtotal.toFixed(2)}
                                         </span>
                                     </div>
-                                    
+
                                     {(tradeType === 'buy' ? brokerBuyCommission : brokerSellCommission) > 0 && (
                                         <>
                                             <div className="flex justify-between">
@@ -1698,21 +1781,20 @@ export default function InvestmentsPage() {
                                             <div className="border-t border-gray-300 pt-2"></div>
                                         </>
                                     )}
-                                    
+
                                     <div className="flex justify-between">
                                         <span className="text-gray-900 font-semibold">Total:</span>
-                                        <span className={`font-bold text-lg ${
-                                            tradeType === 'buy' ? 'text-red-600' : 'text-green-600'
-                                        }`}>
+                                        <span className={`font-bold text-lg ${tradeType === 'buy' ? 'text-red-600' : 'text-green-600'
+                                            }`}>
                                             {tradeType === 'buy' ? '-' : '+'}${total.toFixed(2)}
                                         </span>
                                     </div>
-                                    
+
                                     {tradeType === 'sell' && currentInvestment && (() => {
                                         const buyPrice = Number((currentInvestment as Investment).buyPrice)
                                         const profit = (tradeData.price - buyPrice) * tradeData.shares
                                         const netProfit = profit - commission
-                                        
+
                                         return (
                                             <>
                                                 <div className="border-t border-gray-300 pt-2 mt-2"></div>
@@ -1722,17 +1804,15 @@ export default function InvestmentsPage() {
                                                 </div>
                                                 <div className="flex justify-between">
                                                     <span className="text-gray-900">Ganancia/Pérdida Bruta:</span>
-                                                    <span className={`font-medium ${
-                                                        profit >= 0 ? 'text-green-600' : 'text-red-600'
-                                                    }`}>
+                                                    <span className={`font-medium ${profit >= 0 ? 'text-green-600' : 'text-red-600'
+                                                        }`}>
                                                         ${profit.toFixed(2)}
                                                     </span>
                                                 </div>
                                                 <div className="flex justify-between">
                                                     <span className="text-gray-900 font-semibold">Ganancia/Pérdida Neta:</span>
-                                                    <span className={`font-bold ${
-                                                        netProfit >= 0 ? 'text-green-600' : 'text-red-600'
-                                                    }`}>
+                                                    <span className={`font-bold ${netProfit >= 0 ? 'text-green-600' : 'text-red-600'
+                                                        }`}>
                                                         ${netProfit.toFixed(2)}
                                                     </span>
                                                 </div>
@@ -1778,10 +1858,21 @@ export default function InvestmentsPage() {
                         {showHidden ? 'Ocultar filas ocultas' : 'Mostrar todas las filas'}
                     </button>
                 )}
+                <button
+                    onClick={() => setShowClosed(!showClosed)}
+                    className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 flex items-center gap-2"
+                >
+                    {showClosed ? <EyeOff size={14} /> : <Eye size={14} />}
+                    {showClosed ? 'Ocultar cerradas' : 'Mostrar cerradas'}
+                </button>
             </div>
 
             <TableTemplate
-                data={showHidden ? investments : investments.filter(inv => !hiddenInvestments.has(inv.id))}
+                data={
+                    investments
+                        .filter(inv => showClosed || inv.status === "activa")
+                        .filter(inv => showHidden || !hiddenInvestments.has(inv.id))
+                }
                 columns={columns}
                 title="Inversiones en Acciones"
                 getItemId={(item) => item.id}
@@ -1822,7 +1913,7 @@ export default function InvestmentsPage() {
                                     placeholder="Buscar por símbolo o nombre..."
                                 />
                                 <Search className="absolute right-3 top-2.5 text-gray-400" size={20} />
-                                
+
                                 {favoriteSearch && (
                                     <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-48 overflow-y-auto">
                                         {isSearchingFavorite ? (
@@ -1863,7 +1954,7 @@ export default function InvestmentsPage() {
                                     const quote = favoriteQuotes[favorite.symbol]
                                     const chartData = favoriteChartData[favorite.symbol] || []
                                     const isLoading = loadingFavorites.has(favorite.symbol)
-                                    
+
                                     return (
                                         <div key={favorite.id} className="border border-gray-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
                                             <div className="p-4">
@@ -1889,10 +1980,9 @@ export default function InvestmentsPage() {
                                                         <div className="text-2xl font-bold text-gray-900">
                                                             ${quote.price?.toFixed(2) || 'N/A'}
                                                         </div>
-                                                        <div className={`text-sm font-semibold ${
-                                                            (quote.change || 0) >= 0 ? 'text-green-600' : 'text-red-600'
-                                                        }`}>
-                                                            {(quote.change || 0) >= 0 ? '+' : ''}{quote.change?.toFixed(2) || '0.00'} 
+                                                        <div className={`text-sm font-semibold ${(quote.change || 0) >= 0 ? 'text-green-600' : 'text-red-600'
+                                                            }`}>
+                                                            {(quote.change || 0) >= 0 ? '+' : ''}{quote.change?.toFixed(2) || '0.00'}
                                                             ({(quote.changePercent || 0) >= 0 ? '+' : ''}{quote.changePercent?.toFixed(2) || '0.00'}%)
                                                         </div>
                                                     </div>
@@ -1905,14 +1995,14 @@ export default function InvestmentsPage() {
                                                             <AreaChart data={chartData}>
                                                                 <defs>
                                                                     <linearGradient id={`gradient-${favorite.symbol}`} x1="0" y1="0" x2="0" y2="1">
-                                                                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                                                                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                                                                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+                                                                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
                                                                     </linearGradient>
                                                                 </defs>
-                                                                <Area 
-                                                                    type="monotone" 
-                                                                    dataKey="close" 
-                                                                    stroke="#3b82f6" 
+                                                                <Area
+                                                                    type="monotone"
+                                                                    dataKey="close"
+                                                                    stroke="#3b82f6"
                                                                     strokeWidth={1.5}
                                                                     fill={`url(#gradient-${favorite.symbol})`}
                                                                     dot={false}
@@ -1955,7 +2045,7 @@ export default function InvestmentsPage() {
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
                     <div className="bg-white rounded-lg p-6 w-full max-w-md shadow-xl">
                         <h3 className="text-lg font-bold text-gray-900 mb-4">{confirmTitle}</h3>
-                        <p className="text-gray-700 mb-6">{confirmMessage}</p>
+                        <p className="text-gray-700 mb-6 whitespace-pre-line">{confirmMessage}</p>
                         <div className="flex gap-3 justify-end">
                             <button
                                 onClick={() => setShowConfirmModal(false)}

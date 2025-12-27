@@ -10,6 +10,12 @@ interface User {
   email: string
   role: string
   createdAt: Date
+  botMode?: boolean
+  aiModel?: {
+    id: string
+    name: string
+    type: string
+  } | null
 }
 
 export default function UsersClient({
@@ -49,13 +55,43 @@ export default function UsersClient({
       render: (user: User) => (
         <span
           className={`inline-block px-2 py-0.5 text-xs rounded ${user.role === "admin"
-              ? "bg-purple-100 text-purple-700"
-              : "bg-blue-100 text-blue-700"
+            ? "bg-purple-100 text-purple-700"
+            : "bg-blue-100 text-blue-700"
             }`}
         >
           {user.role}
         </span>
       ),
+    },
+    {
+      key: "aiModel",
+      label: "AI Model",
+      render: (user: User) => (
+        user.aiModel ? (
+          <div className="text-sm">
+            <div className="font-medium text-gray-900">{user.aiModel.name}</div>
+            <div className="text-xs text-gray-500">{user.aiModel.type}</div>
+          </div>
+        ) : (
+          <span className="text-sm text-gray-400">-</span>
+        )
+      ),
+      searchable: false,
+    },
+    {
+      key: "botMode",
+      label: "Modo Bot",
+      render: (user: User) => (
+        <span
+          className={`inline-block px-2 py-1 text-xs rounded ${user.botMode
+            ? "bg-green-100 text-green-800"
+            : "bg-gray-100 text-gray-600"
+            }`}
+        >
+          {user.botMode ? "✓ Activado" : "Desactivado"}
+        </span>
+      ),
+      searchable: false,
     },
     {
       key: "createdAt",
@@ -96,8 +132,8 @@ export default function UsersClient({
       {message && (
         <div
           className={`mb-4 p-3 rounded-md text-sm ${message.type === "success"
-              ? "bg-green-50 border border-green-200 text-green-700"
-              : "bg-red-50 border border-red-200 text-red-700"
+            ? "bg-green-50 border border-green-200 text-green-700"
+            : "bg-red-50 border border-red-200 text-red-700"
             }`}
         >
           {message.text}

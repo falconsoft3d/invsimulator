@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, Save, Trash2 } from "lucide-react"
 import Link from "next/link"
@@ -10,11 +10,21 @@ interface User {
   name: string | null
   email: string
   role: string
+  aiModelId?: string | null
+  aiPrompt?: string | null
+  botMode?: boolean
+}
+
+interface AIModel {
+  id: string
+  name: string
+  type: string
 }
 
 export default function EditUserForm({ user }: { user: User }) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
+  const [aiModels, setAiModels] = useState<AIModel[]>([])
   const [message, setMessage] = useState<{
     text: string
     type: "success" | "error"
@@ -24,7 +34,26 @@ export default function EditUserForm({ user }: { user: User }) {
     name: user.name || "",
     email: user.email,
     role: user.role,
+    aiModelId: user.aiModelId || "",
+    aiPrompt: user.aiPrompt || "",
+    botMode: user.botMode || false,
   })
+
+  // Cargar modelos de IA
+  useEffect(() => {
+    const fetchAIModels = async () => {
+      try {
+        const response = await fetch("/api/ai-models")
+        if (response.ok) {
+          const data = await response.json()
+          setAiModels(data)
+        }
+      } catch (error) {
+        console.error("Error loading AI models:", error)
+      }
+    }
+    fetchAIModels()
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -161,13 +190,79 @@ export default function EditUserForm({ user }: { user: User }) {
             </select>
           </div>
 
+          <div className="border-t border-gray-200 pt-5 mt-5">
+            <h3 className="text-sm font-semibold text-gray-900 mb-4">Configuración de IA para Inversiones</h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Modelo de IA
+                </label>
+                <select
+                  value={formData.aiModelId}
+                  onChange={(e) =>
+                    setFormData({ ...formData, aiModelId: e.target.value })
+                  }
+                  className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:bg-white text-gray-900"
+                >
+                  <option value="">Sin modelo de IA</option>
+                  {aiModels.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.name} ({model.type})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Selecciona el modelo de IA que usará este usuario para tomar decisiones de inversión
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Prompt de IA
+                </label>
+                <textarea
+                  value={formData.aiPrompt}
+                  onChange={(e) =>
+                    setFormData({ ...formData, aiPrompt: e.target.value })
+                  }
+                  rows={6}
+                  placeholder="Ej: Eres un asesor financiero experto. Analiza las acciones y recomienda inversiones basadas en..."
+                  className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:bg-white text-gray-900 resize-none"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Define las instrucciones que la IA seguirá para analizar y recomendar inversiones
+                </p>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  id="botMode"
+                  checked={formData.botMode}
+                  onChange={(e) =>
+                    setFormData({ ...formData, botMode: e.target.checked })
+                  }
+                  className="mt-1 w-4 h-4 text-blue-600 bg-gray-50 border-gray-300 rounded focus:ring-blue-500"
+                />
+                <div>
+                  <label htmlFor="botMode" className="block text-sm font-medium text-gray-700 cursor-pointer">
+                    Modo Bot Activado
+                  </label>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Cuando está activado, el bot de IA operará automáticamente las inversiones según el modelo y prompt configurados
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {message && (
             <div
-              className={`p-3 rounded-md text-sm ${
-                message.type === "success"
-                  ? "bg-green-50 border border-green-200 text-green-700"
-                  : "bg-red-50 border border-red-200 text-red-700"
-              }`}
+              className={`p-3 rounded-md text-sm ${message.type === "success"
+                ? "bg-green-50 border border-green-200 text-green-700"
+                : "bg-red-50 border border-red-200 text-red-700"
+                }`}
             >
               {message.text}
             </div>

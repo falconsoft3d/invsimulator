@@ -16,7 +16,7 @@ export async function PUT(
     }
 
     const body = await req.json()
-    const { name, email, role } = body
+    const { name, email, role, aiModelId, aiPrompt, botMode } = body
 
     if (!name || !email) {
       return NextResponse.json(
@@ -29,6 +29,9 @@ export async function PUT(
       name,
       email,
       role: role || "user",
+      aiModelId: aiModelId || null,
+      aiPrompt: aiPrompt || null,
+      botMode: botMode !== undefined ? botMode : false,
     }
 
     const user = await prisma.user.update({
@@ -39,6 +42,9 @@ export async function PUT(
         name: true,
         email: true,
         role: true,
+        aiModelId: true,
+        aiPrompt: true,
+        botMode: true,
         createdAt: true,
       },
     })

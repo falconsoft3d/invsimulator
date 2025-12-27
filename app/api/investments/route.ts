@@ -63,6 +63,7 @@ export async function POST(req: Request) {
                 profitLossPercent,
                 buyDate: buyDate ? new Date(buyDate) : new Date(),
                 journalId: journalId || null,
+                userId: session.user.id,
                 status: "activa"
             },
             include: {

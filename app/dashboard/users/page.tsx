@@ -30,6 +30,14 @@ export default async function UsersPage({
         email: true,
         role: true,
         createdAt: true,
+        botMode: true,
+        aiModel: {
+          select: {
+            id: true,
+            name: true,
+            type: true,
+          },
+        },
       },
       orderBy: {
         createdAt: "desc",

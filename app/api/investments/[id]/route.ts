@@ -48,11 +48,11 @@ export async function PATCH(
 
         const { id } = await params
         const body = await req.json()
-        const { symbol, name, shares, buyPrice, currentPrice, journalId, status } = body
+        const { symbol, name, shares, buyPrice, currentPrice, journalId, status, closeDate, closePrice } = body
 
         // Calcular valores actualizados
         let updateData: any = {}
-        
+
         if (symbol !== undefined) updateData.symbol = symbol
         if (name !== undefined) updateData.name = name
         if (shares !== undefined) updateData.shares = Number(shares)
@@ -60,6 +60,8 @@ export async function PATCH(
         if (currentPrice !== undefined) updateData.currentPrice = Number(currentPrice)
         if (journalId !== undefined) updateData.journalId = journalId
         if (status !== undefined) updateData.status = status
+        if (closeDate !== undefined) updateData.closeDate = new Date(closeDate)
+        if (closePrice !== undefined) updateData.closePrice = Number(closePrice)
 
         // Obtener datos actuales para calcular
         const current = await prisma.stockInvestment.findUnique({
@@ -79,8 +81,8 @@ export async function PATCH(
         updateData.totalInvested = finalShares * finalBuyPrice
         updateData.currentValue = finalShares * finalCurrentPrice
         updateData.profitLoss = updateData.currentValue - updateData.totalInvested
-        updateData.profitLossPercent = updateData.totalInvested > 0 
-            ? (updateData.profitLoss / updateData.totalInvested) * 100 
+        updateData.profitLossPercent = updateData.totalInvested > 0
+            ? (updateData.profitLoss / updateData.totalInvested) * 100
             : 0
 
         const investment = await prisma.stockInvestment.update({

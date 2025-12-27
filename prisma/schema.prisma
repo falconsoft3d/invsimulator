@@ -17,10 +17,15 @@ model User {
   password  String
   role      String   @default("user") // user, admin
   image     String?
+  aiModelId String?
+  aiModel   AIModel? @relation(fields: [aiModelId], references: [id])
+  aiPrompt  String?  @db.Text
+  botMode   Boolean  @default(false) // Modo bot activado/desactivado
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  payments  Payment[]
+  payments     Payment[]
+  investments  StockInvestment[]
 
   @@map("users")
 }
@@ -33,6 +38,8 @@ model AIModel {
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  users     User[]
 
   @@map("ai_models")
 }
@@ -178,11 +185,16 @@ model StockInvestment {
   profitLoss  Decimal @default(0) // Ganancia/Pérdida
   profitLossPercent Decimal @default(0) // Porcentaje de ganancia/pérdida
   buyDate     DateTime @default(now())
+  closeDate   DateTime? // Fecha de cierre de la operación
+  closePrice  Decimal?  // Precio de cierre
   
   journalId   String?
   journal     Journal? @relation(fields: [journalId], references: [id])
   
-  status      String   @default("activa") // "activa", "vendida"
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  
+  status      String   @default("activa") // "activa", "cerrada"
   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

@@ -23,6 +23,9 @@ export default async function EditUserPage({
       name: true,
       email: true,
       role: true,
+      aiModelId: true,
+      aiPrompt: true,
+      botMode: true,
     },
   })
 
