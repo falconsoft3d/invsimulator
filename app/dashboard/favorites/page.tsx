@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Star, Plus, Trash2, ShoppingCart, Search, X } from "lucide-react"
+import { Star, Plus, Trash2, ShoppingCart, Search, X, TrendingDown } from "lucide-react"
+import { AreaChart, Area, ResponsiveContainer } from "recharts"
 
 interface Favorite {
     id: string
@@ -25,6 +26,9 @@ export default function FavoritesPage() {
     const [isSearching, setIsSearching] = useState(false)
     const [selectedFavorite, setSelectedFavorite] = useState<Favorite | null>(null)
     const [note, setNote] = useState("")
+    const [favoriteChartData, setFavoriteChartData] = useState<Record<string, any[]>>({})
+    const [favoriteQuotes, setFavoriteQuotes] = useState<Record<string, any>>({})
+    const [loadingFavorites, setLoadingFavorites] = useState<Set<string>>(new Set())
 
     useEffect(() => {
         loadFavorites()
@@ -36,11 +40,48 @@ export default function FavoritesPage() {
             if (response.ok) {
                 const data = await response.json()
                 setFavorites(data)
+                
+                // Cargar datos de cotización y gráficos para cada favorito
+                data.forEach((fav: Favorite) => {
+                    loadFavoriteData(fav.symbol)
+                })
             }
         } catch (error) {
             console.error("Error loading favorites:", error)
         } finally {
             setLoading(false)
+        }
+    }
+
+    const loadFavoriteData = async (symbol: string) => {
+        setLoadingFavorites(prev => new Set(prev).add(symbol))
+        
+        try {
+            // Cargar cotización actual
+            const quoteRes = await fetch(`/api/stocks/quote?symbol=${encodeURIComponent(symbol)}`)
+            if (quoteRes.ok) {
+                const quote = await quoteRes.json()
+                setFavoriteQuotes(prev => ({ ...prev, [symbol]: quote }))
+            }
+
+            // Cargar datos históricos (últimos 5 días)
+            const historyRes = await fetch(`/api/stocks/history?symbol=${encodeURIComponent(symbol)}&period=5d`)
+            if (historyRes.ok) {
+                const historyData = await historyRes.json()
+                const chartData = (historyData.data || []).map((item: any) => ({
+                    ...item,
+                    openClose: [item.open, item.close]
+                }))
+                setFavoriteChartData(prev => ({ ...prev, [symbol]: chartData }))
+            }
+        } catch (error) {
+            console.error(`Error loading data for ${symbol}:`, error)
+        } finally {
+            setLoadingFavorites(prev => {
+                const newSet = new Set(prev)
+                newSet.delete(symbol)
+                return newSet
+            })
         }
     }
 

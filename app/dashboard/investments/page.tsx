@@ -1859,39 +1859,91 @@ export default function InvestmentsPage() {
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                {favorites.map((favorite) => (
-                                    <div key={favorite.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                                        <div className="flex justify-between items-start mb-2">
-                                            <div>
-                                                <h3 className="font-bold text-lg text-gray-900">{favorite.symbol}</h3>
-                                                <p className="text-sm text-gray-600">{favorite.name}</p>
+                                {favorites.map((favorite) => {
+                                    const quote = favoriteQuotes[favorite.symbol]
+                                    const chartData = favoriteChartData[favorite.symbol] || []
+                                    const isLoading = loadingFavorites.has(favorite.symbol)
+                                    
+                                    return (
+                                        <div key={favorite.id} className="border border-gray-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
+                                            <div className="p-4">
+                                                <div className="flex justify-between items-start mb-2">
+                                                    <div>
+                                                        <h3 className="font-bold text-lg text-gray-900">{favorite.symbol}</h3>
+                                                        <p className="text-sm text-gray-600 truncate">{favorite.name}</p>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => handleRemoveFavorite(favorite.id)}
+                                                        className="text-gray-400 hover:text-red-600"
+                                                        title="Quitar de favoritos"
+                                                    >
+                                                        <X size={18} />
+                                                    </button>
+                                                </div>
+
+                                                {/* Precio y Cambio */}
+                                                {isLoading ? (
+                                                    <div className="text-center py-2 text-gray-400 text-sm">Cargando...</div>
+                                                ) : quote ? (
+                                                    <div className="mb-3">
+                                                        <div className="text-2xl font-bold text-gray-900">
+                                                            ${quote.price?.toFixed(2) || 'N/A'}
+                                                        </div>
+                                                        <div className={`text-sm font-semibold ${
+                                                            (quote.change || 0) >= 0 ? 'text-green-600' : 'text-red-600'
+                                                        }`}>
+                                                            {(quote.change || 0) >= 0 ? '+' : ''}{quote.change?.toFixed(2) || '0.00'} 
+                                                            ({(quote.changePercent || 0) >= 0 ? '+' : ''}{quote.changePercent?.toFixed(2) || '0.00'}%)
+                                                        </div>
+                                                    </div>
+                                                ) : null}
+
+                                                {/* Mini Gráfico */}
+                                                {chartData.length > 0 && (
+                                                    <div className="mb-3 bg-gray-50 rounded-lg p-2">
+                                                        <ResponsiveContainer width="100%" height={120}>
+                                                            <AreaChart data={chartData}>
+                                                                <defs>
+                                                                    <linearGradient id={`gradient-${favorite.symbol}`} x1="0" y1="0" x2="0" y2="1">
+                                                                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                                                                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                                                                    </linearGradient>
+                                                                </defs>
+                                                                <Area 
+                                                                    type="monotone" 
+                                                                    dataKey="close" 
+                                                                    stroke="#3b82f6" 
+                                                                    strokeWidth={1.5}
+                                                                    fill={`url(#gradient-${favorite.symbol})`}
+                                                                    dot={false}
+                                                                />
+                                                            </AreaChart>
+                                                        </ResponsiveContainer>
+                                                        <div className="text-xs text-gray-500 text-center mt-1">Últimos 5 días</div>
+                                                    </div>
+                                                )}
+
+                                                {/* Botones de acción */}
+                                                <div className="flex gap-2">
+                                                    <button
+                                                        onClick={() => handleQuickBuy(favorite)}
+                                                        className="flex-1 px-4 py-2 bg-gray-900 text-white rounded-md hover:bg-gray-800 flex items-center justify-center gap-2 text-sm"
+                                                    >
+                                                        <ShoppingCart size={16} />
+                                                        Comprar
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleQuickSell(favorite)}
+                                                        className="flex-1 px-4 py-2 bg-white text-gray-900 border-2 border-gray-900 rounded-md hover:bg-gray-50 flex items-center justify-center gap-2 text-sm"
+                                                    >
+                                                        <TrendingDown size={16} />
+                                                        Vender
+                                                    </button>
+                                                </div>
                                             </div>
-                                            <button
-                                                onClick={() => handleRemoveFavorite(favorite.id)}
-                                                className="text-gray-400 hover:text-red-600"
-                                                title="Quitar de favoritos"
-                                            >
-                                                <X size={18} />
-                                            </button>
                                         </div>
-                                        <div className="flex gap-2 mt-3">
-                                            <button
-                                                onClick={() => handleQuickBuy(favorite)}
-                                                className="flex-1 px-4 py-2 bg-gray-900 text-white rounded-md hover:bg-gray-800 flex items-center justify-center gap-2 text-sm"
-                                            >
-                                                <ShoppingCart size={16} />
-                                                Comprar
-                                            </button>
-                                            <button
-                                                onClick={() => handleQuickSell(favorite)}
-                                                className="flex-1 px-4 py-2 bg-white text-gray-900 border-2 border-gray-900 rounded-md hover:bg-gray-50 flex items-center justify-center gap-2 text-sm"
-                                            >
-                                                <TrendingDown size={16} />
-                                                Vender
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))}
+                                    )
+                                })}
                             </div>
                         )}
                     </div>
