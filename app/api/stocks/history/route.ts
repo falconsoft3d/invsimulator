@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
-import yahooFinance from "yahoo-finance2"
+import YahooFinance from "yahoo-finance2"
+
+const yahooFinance = new YahooFinance()
 
 export async function GET(request: NextRequest) {
     try {
@@ -44,9 +46,19 @@ export async function GET(request: NextRequest) {
             interval: interval as any
         }
         
-        console.log(`🎯 Query options:`, queryOptions)
+        console.log(`🎯 Calling yahooFinance.chart with:`, { symbol, queryOptions })
         
-        const result = await yahooFinance.chart(symbol, queryOptions)
+        let result
+        try {
+            result = await yahooFinance.chart(symbol, queryOptions)
+            console.log(`✅ Yahoo Finance returned result`)
+        } catch (yahooError: any) {
+            console.error(`❌ Yahoo Finance error:`, yahooError.message || yahooError)
+            return NextResponse.json(
+                { error: "Failed to fetch data from Yahoo Finance", details: yahooError.message },
+                { status: 500 }
+            )
+        }
 
         console.log(`📊 Historical data result:`, result)
         console.log(`📊 Number of quotes:`, result?.quotes?.length || 0)

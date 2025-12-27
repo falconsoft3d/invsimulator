@@ -3,7 +3,36 @@
 import { useState, useEffect } from "react"
 import { TrendingUp, Trash2, X, RefreshCw, DollarSign, ShoppingCart, TrendingDown, Search, Plus, Eye, EyeOff, ChevronDown, ChevronUp, TrendingUpIcon, BarChart3 } from "lucide-react"
 import TableTemplate from "@/components/TableTemplate"
-import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts"
+import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ComposedChart, Bar } from "recharts"
+
+// Componente personalizado para velas japonesas
+const CandleStick = (props: any) => {
+    const { x, y, width, height, low, high, openClose, fill } = props
+    const isGrowing = openClose[1] > openClose[0]
+    const color = isGrowing ? "#10b981" : "#ef4444"
+    const ratio = Math.abs(height / (openClose[0] - openClose[1]))
+    
+    return (
+        <g stroke={color} fill="none" strokeWidth="2">
+            {/* Línea vertical (mecha) */}
+            <path
+                d={`
+                    M ${x + width / 2},${y}
+                    L ${x + width / 2},${y + height}
+                `}
+            />
+            {/* Cuerpo de la vela */}
+            <rect
+                x={x + width * 0.2}
+                y={isGrowing ? y + (1 - ratio) * height : y}
+                width={width * 0.6}
+                height={ratio * height || 1}
+                fill={color}
+                stroke={color}
+            />
+        </g>
+    )
+}
 
 interface Journal {
     id: string
@@ -127,6 +156,9 @@ export default function InvestmentsPage() {
     const [chartType, setChartType] = useState<"line" | "candlestick">("line")
     const [chartPeriod, setChartPeriod] = useState<string>("1mo")
     const [isLoadingChart, setIsLoadingChart] = useState(false)
+    const [favoriteChartData, setFavoriteChartData] = useState<Record<string, any[]>>({})
+    const [favoriteQuotes, setFavoriteQuotes] = useState<Record<string, any>>({})
+    const [loadingFavorites, setLoadingFavorites] = useState<Set<string>>(new Set())
     const [tradeData, setTradeData] = useState({
         symbol: "",
         name: "",
@@ -169,6 +201,11 @@ export default function InvestmentsPage() {
             if (favoritesRes.ok) {
                 const favoritesData = await favoritesRes.json()
                 setFavorites(favoritesData)
+                
+                // Cargar datos de cotización y gráficos para cada favorito
+                favoritesData.forEach((fav: Favorite) => {
+                    loadFavoriteData(fav.symbol)
+                })
             }
 
             // Calcular capital disponible solo para el usuario actual
@@ -901,12 +938,19 @@ export default function InvestmentsPage() {
                 console.log('📊 Number of data points:', data.data?.length || 0)
                 console.log('📊 First data point:', data.data?.[0])
                 console.log('📊 Last data point:', data.data?.[data.data?.length - 1])
-                const chartData = data.data || []
+                const chartData = (data.data || []).map((item: any) => ({
+                    ...item,
+                    openClose: [item.open, item.close]
+                }))
                 setHistoricalData(chartData)
                 console.log('✅ Chart data set, length:', chartData.length)
             } else {
-                const errorData = await response.json()
-                console.error('❌ Failed to fetch historical data:', response.status, errorData)
+                try {
+                    const errorData = await response.json()
+                    console.error('❌ Failed to fetch historical data:', response.status, errorData)
+                } catch (e) {
+                    console.error('❌ Failed to fetch historical data:', response.status)
+                }
                 setHistoricalData([])
             }
         } catch (error) {
@@ -1178,7 +1222,7 @@ export default function InvestmentsPage() {
                                                     </ResponsiveContainer>
                                                 ) : (
                                                     <ResponsiveContainer width="100%" height={320}>
-                                                        <LineChart data={historicalData}>
+                                                        <ComposedChart data={historicalData}>
                                                             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                                                             <XAxis 
                                                                 dataKey="date" 
@@ -1199,6 +1243,9 @@ export default function InvestmentsPage() {
                                                                 content={({ active, payload }) => {
                                                                     if (active && payload && payload.length) {
                                                                         const data = payload[0].payload
+                                                                        const change = data.close - data.open
+                                                                        const changePercent = ((change / data.open) * 100)
+                                                                        const isPositive = change >= 0
                                                                         return (
                                                                             <div className="bg-white p-3 rounded-lg shadow-lg border border-gray-200">
                                                                                 <p className="text-xs text-gray-500 mb-2">
@@ -1226,6 +1273,12 @@ export default function InvestmentsPage() {
                                                                                         <span className="text-xs font-bold text-gray-900">${data.close.toFixed(2)}</span>
                                                                                     </div>
                                                                                     <div className="flex justify-between gap-3 pt-1 border-t border-gray-200">
+                                                                                        <span className="text-xs text-gray-600">Cambio:</span>
+                                                                                        <span className={`text-xs font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+                                                                                            {isPositive ? '+' : ''}{change.toFixed(2)} ({isPositive ? '+' : ''}{changePercent.toFixed(2)}%)
+                                                                                        </span>
+                                                                                    </div>
+                                                                                    <div className="flex justify-between gap-3">
                                                                                         <span className="text-xs text-gray-600">Volumen:</span>
                                                                                         <span className="text-xs font-semibold">{data.volume.toLocaleString()}</span>
                                                                                     </div>
@@ -1236,48 +1289,52 @@ export default function InvestmentsPage() {
                                                                     return null
                                                                 }}
                                                             />
-                                                            {/* Simulación de velas japonesas con líneas */}
-                                                            {historicalData.map((entry, index) => {
-                                                                const x = index * (100 / historicalData.length)
-                                                                const isGreen = entry.close >= entry.open
-                                                                return (
-                                                                    <rect
-                                                                        key={index}
-                                                                        x={`${x}%`}
-                                                                        y={0}
-                                                                        width={2}
-                                                                        height="100%"
-                                                                        fill={isGreen ? "#10b981" : "#ef4444"}
-                                                                        opacity={0.1}
-                                                                    />
-                                                                )
-                                                            })}
-                                                            <Line 
-                                                                type="monotone" 
-                                                                dataKey="high" 
-                                                                stroke="#10b981" 
-                                                                strokeWidth={1}
-                                                                dot={false}
-                                                                name="Máximo"
+                                                            <Bar
+                                                                dataKey="openClose"
+                                                                shape={(props: any) => {
+                                                                    const { x, y, width, height, payload } = props
+                                                                    const isGrowing = payload.close >= payload.open
+                                                                    const color = isGrowing ? "#10b981" : "#ef4444"
+                                                                    const yHigh = y - ((payload.high - payload.close) / (payload.high - payload.low)) * height
+                                                                    const yLow = y + ((payload.open - payload.low) / (payload.high - payload.low)) * height
+                                                                    const yOpen = y + ((payload.close - payload.open) / (payload.high - payload.low)) * height
+                                                                    const bodyHeight = Math.abs(yOpen - y)
+                                                                    
+                                                                    return (
+                                                                        <g>
+                                                                            {/* Mecha superior */}
+                                                                            <line
+                                                                                x1={x + width / 2}
+                                                                                y1={yHigh}
+                                                                                x2={x + width / 2}
+                                                                                y2={isGrowing ? y : yOpen}
+                                                                                stroke={color}
+                                                                                strokeWidth={1}
+                                                                            />
+                                                                            {/* Cuerpo de la vela */}
+                                                                            <rect
+                                                                                x={x + width * 0.25}
+                                                                                y={isGrowing ? y : yOpen}
+                                                                                width={width * 0.5}
+                                                                                height={bodyHeight || 1}
+                                                                                fill={color}
+                                                                                stroke={color}
+                                                                                strokeWidth={1}
+                                                                            />
+                                                                            {/* Mecha inferior */}
+                                                                            <line
+                                                                                x1={x + width / 2}
+                                                                                y1={isGrowing ? yOpen : y}
+                                                                                x2={x + width / 2}
+                                                                                y2={yLow}
+                                                                                stroke={color}
+                                                                                strokeWidth={1}
+                                                                            />
+                                                                        </g>
+                                                                    )
+                                                                }}
                                                             />
-                                                            <Line 
-                                                                type="monotone" 
-                                                                dataKey="low" 
-                                                                stroke="#ef4444" 
-                                                                strokeWidth={1}
-                                                                dot={false}
-                                                                name="Mínimo"
-                                                            />
-                                                            <Line 
-                                                                type="monotone" 
-                                                                dataKey="close" 
-                                                                stroke="#3b82f6" 
-                                                                strokeWidth={2}
-                                                                dot={false}
-                                                                name="Cierre"
-                                                            />
-                                                            <Legend />
-                                                        </LineChart>
+                                                        </ComposedChart>
                                                     </ResponsiveContainer>
                                                 )}
                                             </div>
