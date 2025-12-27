@@ -4,7 +4,7 @@ import { NextResponse } from "next/server"
 
 export async function GET(
     req: Request,
-    { params }: { params: { id: string } }
+    { params }: { params: Promise<{ id: string }> }
 ) {
     try {
         const session = await auth()
@@ -12,8 +12,10 @@ export async function GET(
             return new NextResponse("Unauthorized", { status: 401 })
         }
 
+        const { id } = await params
+
         const investment = await prisma.stockInvestment.findUnique({
-            where: { id: params.id },
+            where: { id },
             include: {
                 journal: {
                     include: {
@@ -36,7 +38,7 @@ export async function GET(
 
 export async function PATCH(
     req: Request,
-    { params }: { params: { id: string } }
+    { params }: { params: Promise<{ id: string }> }
 ) {
     try {
         const session = await auth()
@@ -44,6 +46,7 @@ export async function PATCH(
             return new NextResponse("Unauthorized", { status: 401 })
         }
 
+        const { id } = await params
         const body = await req.json()
         const { symbol, name, shares, buyPrice, currentPrice, journalId, status } = body
 
@@ -60,7 +63,7 @@ export async function PATCH(
 
         // Obtener datos actuales para calcular
         const current = await prisma.stockInvestment.findUnique({
-            where: { id: params.id }
+            where: { id }
         })
 
         if (!current) {
@@ -81,7 +84,7 @@ export async function PATCH(
             : 0
 
         const investment = await prisma.stockInvestment.update({
-            where: { id: params.id },
+            where: { id },
             data: updateData,
             include: {
                 journal: {
@@ -101,7 +104,7 @@ export async function PATCH(
 
 export async function DELETE(
     req: Request,
-    { params }: { params: { id: string } }
+    { params }: { params: Promise<{ id: string }> }
 ) {
     try {
         const session = await auth()
@@ -109,8 +112,10 @@ export async function DELETE(
             return new NextResponse("Unauthorized", { status: 401 })
         }
 
+        const { id } = await params
+
         await prisma.stockInvestment.delete({
-            where: { id: params.id }
+            where: { id }
         })
 
         return NextResponse.json({ success: true })

@@ -16,7 +16,8 @@ export async function GET() {
             ],
             include: {
                 journal: true,
-                contact: true
+                contact: true,
+                user: true
             }
         })
         return NextResponse.json(payments)
@@ -34,24 +35,48 @@ export async function POST(req: Request) {
         }
 
         const body = await req.json()
-        const { type, journalId, amount, date, contactId, reference } = body
+        const { type, journalId, amount, date, contactId, reference, userId } = body
 
         if (!type || !journalId) {
             return new NextResponse("Missing required fields", { status: 400 })
         }
 
+        // Generar secuencia única basada en el tipo
+        const prefix = type === "Entrada" ? "IN" : "OUT"
+        const lastPayment = await prisma.payment.findFirst({
+            where: {
+                sequence: {
+                    startsWith: prefix
+                }
+            },
+            orderBy: {
+                sequence: "desc"
+            }
+        })
+
+        let nextNumber = 1
+        if (lastPayment?.sequence) {
+            const lastNumber = parseInt(lastPayment.sequence.replace(prefix, ""))
+            nextNumber = lastNumber + 1
+        }
+
+        const sequence = `${prefix}${nextNumber.toString().padStart(4, '0')}`
+
         const payment = await prisma.payment.create({
             data: {
+                sequence,
                 reference,
                 type,
                 journalId,
                 amount: amount || 0,
                 date: date ? new Date(date) : new Date(), // Default to now if missing
                 contactId: contactId || null,
+                userId: userId || null,
             },
             include: {
                 journal: true,
-                contact: true
+                contact: true,
+                user: true
             }
         })
 

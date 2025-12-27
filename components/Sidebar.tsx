@@ -21,7 +21,8 @@ import {
   Settings,
   Book,
   CreditCard,
-  TrendingUp
+  TrendingUp,
+  Star
 } from "lucide-react"
 import { signOut } from "next-auth/react"
 import { useState } from "react"
@@ -83,7 +84,7 @@ export default function Sidebar({ userName, userRole, userImage, isCollapsed, se
                 <Database className="text-white shrink-0 w-5 h-5" />
               </div>
               {!isCollapsed && (
-                <span className="text-lg font-semibold text-gray-900">Dashboard</span>
+                <span className="text-lg font-semibold text-gray-900">InvSimulator</span>
               )}
             </div>
           </div>
@@ -121,6 +122,20 @@ export default function Sidebar({ userName, userRole, userImage, isCollapsed, se
                 >
                   <TrendingUp className="shrink-0 w-5 h-5" />
                   {!isCollapsed && <span>Inversiones</span>}
+                </Link>
+
+                {/* Favoritos */}
+                <Link
+                  href="/dashboard/favorites"
+                  onClick={() => setIsOpen(false)}
+                  className={`flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-colors ${pathname === "/dashboard/favorites"
+                    ? "bg-gray-100 text-gray-900 font-medium"
+                    : "text-gray-600 hover:bg-gray-50"
+                    } ${isCollapsed ? "justify-center" : ""}`}
+                  title={isCollapsed ? "Favoritos" : ""}
+                >
+                  <Star className="shrink-0 w-5 h-5" />
+                  {!isCollapsed && <span>Favoritos</span>}
                 </Link>
 
                 {/* Modelos IA */}

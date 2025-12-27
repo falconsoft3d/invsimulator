@@ -14,7 +14,7 @@ export async function PUT(
 
         const { id } = await params
         const body = await req.json()
-        const { type, journalId, amount, date, contactId, reference } = body
+        const { type, journalId, amount, date, contactId, reference, userId } = body
 
         if (!type || !journalId) {
             return new NextResponse("Missing required fields", { status: 400 })
@@ -29,10 +29,12 @@ export async function PUT(
                 amount: amount,
                 date: date ? new Date(date) : undefined,
                 contactId: contactId,
+                userId: userId || null,
             },
             include: {
                 journal: true,
-                contact: true
+                contact: true,
+                user: true
             }
         })
 

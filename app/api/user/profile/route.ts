@@ -3,6 +3,41 @@ import { prisma } from "@/lib/prisma"
 import bcrypt from "bcryptjs"
 import { NextRequest, NextResponse } from "next/server"
 
+export async function GET() {
+  try {
+    const session = await auth()
+
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 401 })
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        image: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    })
+
+    if (!user) {
+      return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 })
+    }
+
+    return NextResponse.json(user)
+  } catch (error: any) {
+    console.error("Error al obtener perfil:", error)
+    return NextResponse.json(
+      { error: error.message || "Error al obtener perfil" },
+      { status: 500 }
+    )
+  }
+}
+
 export async function PUT(req: NextRequest) {
   try {
     const session = await auth()

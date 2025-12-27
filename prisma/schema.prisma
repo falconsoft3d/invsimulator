@@ -20,6 +20,7 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  payments  Payment[]
 
   @@map("users")
 }
@@ -144,6 +145,7 @@ model Journal {
 model Payment {
   id        String   @id @default(cuid())
   code      Int      @unique @default(autoincrement())
+  sequence  String   @unique // "IN001", "OUT0001", etc.
   reference String?
   type      String   // "Entrada", "Salida"
   amount    Decimal  @default(0)
@@ -154,6 +156,9 @@ model Payment {
   
   contactId String?
   contact   Contact? @relation(fields: [contactId], references: [id])
+
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -183,4 +188,17 @@ model StockInvestment {
   updatedAt   DateTime @updatedAt
 
   @@map("stock_investments")
+}
+
+model StockFavorite {
+  id          String   @id @default(cuid())
+  symbol      String   // Símbolo de la acción
+  name        String   // Nombre de la empresa
+  note        String?  // Nota opcional
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([symbol])
+  @@map("stock_favorites")
 }

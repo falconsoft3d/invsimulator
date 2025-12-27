@@ -15,9 +15,16 @@ interface Contact {
     name: string
 }
 
+interface User {
+    id: string
+    name: string | null
+    email: string
+}
+
 interface Payment {
     id: string
     code: number
+    sequence: string
     reference?: string | null
     type: string // "Entrada", "Salida"
     amount: number
@@ -26,6 +33,8 @@ interface Payment {
     journal?: Journal
     contactId?: string | null
     contact?: Contact | null
+    userId?: string | null
+    user?: User | null
     createdAt: string
 }
 
@@ -33,6 +42,7 @@ export default function PaymentsPage() {
     const [payments, setPayments] = useState<Payment[]>([])
     const [journals, setJournals] = useState<Journal[]>([])
     const [contacts, setContacts] = useState<Contact[]>([])
+    const [users, setUsers] = useState<User[]>([])
     const [loading, setLoading] = useState(true)
     const [isEditing, setIsEditing] = useState(false)
     const [currentPayment, setCurrentPayment] = useState<Partial<Payment>>({
@@ -42,6 +52,7 @@ export default function PaymentsPage() {
         date: new Date().toISOString().split('T')[0], // Default today
         journalId: "",
         contactId: "",
+        userId: "",
     })
 
     useEffect(() => {
@@ -50,19 +61,50 @@ export default function PaymentsPage() {
 
     const fetchData = async () => {
         try {
-            const [paymentRes, journalRes, contactRes] = await Promise.all([
+            const [paymentRes, journalRes, contactRes, userRes, currentUserRes] = await Promise.all([
                 fetch("/api/payments"),
                 fetch("/api/journals"),
-                fetch("/api/contacts")
+                fetch("/api/contacts"),
+                fetch("/api/user"),
+                fetch("/api/user/profile")
             ])
 
-            if (paymentRes.ok && journalRes.ok && contactRes.ok) {
+            // Cargar datos individualmente para que si uno falla, los otros se carguen
+            if (paymentRes.ok && currentUserRes.ok) {
                 const paymentsData = await paymentRes.json()
+                const currentUser = await currentUserRes.json()
+                
+                // Filtrar solo los pagos asignados al usuario actual
+                const userPayments = paymentsData.filter((p: any) => p.userId === currentUser.id)
+                setPayments(userPayments)
+            } else {
+                if (!paymentRes.ok) {
+                    console.error("Error loading payments:", paymentRes.status)
+                }
+                if (!currentUserRes.ok) {
+                    console.error("Error loading current user profile:", currentUserRes.status)
+                }
+            }
+
+            if (journalRes.ok) {
                 const journalsData = await journalRes.json()
-                const contactsData = await contactRes.json()
-                setPayments(paymentsData)
                 setJournals(journalsData)
+            } else {
+                console.error("Error loading journals:", journalRes.status)
+            }
+
+            if (contactRes.ok) {
+                const contactsData = await contactRes.json()
                 setContacts(contactsData)
+            } else {
+                console.error("Error loading contacts:", contactRes.status)
+            }
+
+            if (userRes.ok) {
+                const usersData = await userRes.json()
+                setUsers(usersData)
+            } else {
+                console.error("Error loading users:", userRes.status)
             }
         } catch (error) {
             console.error("Error fetching data:", error)
@@ -102,6 +144,7 @@ export default function PaymentsPage() {
             date: new Date().toISOString().split('T')[0],
             journalId: journals[0]?.id || "",
             contactId: "",
+            userId: "",
         })
         setIsEditing(true)
     }
@@ -136,6 +179,15 @@ export default function PaymentsPage() {
     }
 
     const columns = [
+        {
+            key: "sequence",
+            label: "Secuencia",
+            render: (p: Payment) => (
+                <span className="font-mono text-sm font-bold text-blue-600">
+                    {p.sequence}
+                </span>
+            )
+        },
         {
             key: "code",
             label: "Código",
@@ -172,6 +224,15 @@ export default function PaymentsPage() {
             render: (p: Payment) => (
                 <span className="text-sm text-gray-600">
                     {p.contact?.name || "-"}
+                </span>
+            )
+        },
+        {
+            key: "user",
+            label: "Usuario",
+            render: (p: Payment) => (
+                <span className="text-sm text-gray-600">
+                    {p.user?.name || p.user?.email || "-"}
                 </span>
             )
         },
@@ -276,14 +337,23 @@ export default function PaymentsPage() {
                             </div>
 
                             <div className="col-span-1">
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Diario</label>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Diario *
+                                    {journals.length === 0 && (
+                                        <a href="/dashboard/journals" className="ml-2 text-xs text-blue-600 hover:text-blue-700">
+                                            (Crear diario)
+                                        </a>
+                                    )}
+                                </label>
                                 <select
                                     value={currentPayment.journalId}
                                     onChange={(e) => setCurrentPayment({ ...currentPayment, journalId: e.target.value })}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
                                     required
                                 >
-                                    <option value="">Seleccionar Diario</option>
+                                    <option value="">
+                                        {journals.length === 0 ? "No hay diarios disponibles" : "Seleccionar Diario"}
+                                    </option>
                                     {journals.map(j => (
                                         <option key={j.id} value={j.id}>
                                             {j.code} - {j.name}
@@ -293,16 +363,50 @@ export default function PaymentsPage() {
                             </div>
 
                             <div className="col-span-1">
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Contacto</label>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Contacto (Opcional)
+                                    {contacts.length === 0 && (
+                                        <a href="/dashboard/contacts" className="ml-2 text-xs text-blue-600 hover:text-blue-700">
+                                            (Crear contacto)
+                                        </a>
+                                    )}
+                                </label>
                                 <select
                                     value={currentPayment.contactId || ""}
                                     onChange={(e) => setCurrentPayment({ ...currentPayment, contactId: e.target.value })}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
                                 >
-                                    <option value="">Sin contacto</option>
+                                    <option value="">
+                                        {contacts.length === 0 ? "No hay contactos disponibles" : "Sin contacto"}
+                                    </option>
                                     {contacts.map(c => (
                                         <option key={c.id} value={c.id}>
                                             {c.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="col-span-1">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Usuario Asignado (Opcional)
+                                    {users.length === 0 && (
+                                        <a href="/dashboard/users" className="ml-2 text-xs text-blue-600 hover:text-blue-700">
+                                            (Crear usuario)
+                                        </a>
+                                    )}
+                                </label>
+                                <select
+                                    value={currentPayment.userId || ""}
+                                    onChange={(e) => setCurrentPayment({ ...currentPayment, userId: e.target.value })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+                                >
+                                    <option value="">
+                                        {users.length === 0 ? "No hay usuarios disponibles" : "Sin usuario asignado"}
+                                    </option>
+                                    {users.map(u => (
+                                        <option key={u.id} value={u.id}>
+                                            {u.name || u.email}
                                         </option>
                                     ))}
                                 </select>

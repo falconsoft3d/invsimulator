@@ -30,6 +30,8 @@ interface TableTemplateProps<T> {
   currentPage?: number
   onPageChange?: (page: number) => void
   onSearch?: (term: string) => void
+  actions?: (item: T) => React.ReactNode
+  onRowClick?: (item: T) => void
 }
 
 export default function TableTemplate<T>({
@@ -50,6 +52,8 @@ export default function TableTemplate<T>({
   currentPage: propCurrentPage = 1,
   onPageChange,
   onSearch,
+  actions,
+  onRowClick,
 }: TableTemplateProps<T>) {
   const [searchTerm, setSearchTerm] = useState("")
   const [currentPage, setCurrentPage] = useState(propCurrentPage)
@@ -58,11 +62,53 @@ export default function TableTemplate<T>({
   const [sortColumn, setSortColumn] = useState<string | null>(null)
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc")
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const columnSettingsRef = useRef<HTMLDivElement>(null)
 
   // Sync propCurrentPage with state (critical for Server Side pagination)
   useEffect(() => {
     setCurrentPage(propCurrentPage)
   }, [propCurrentPage])
+
+  // Cargar columnas visibles desde localStorage (solo en el cliente)
+  useEffect(() => {
+    const storageKey = `tableColumns_${title.replace(/\s+/g, '_')}`
+    const saved = localStorage.getItem(storageKey)
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved)
+        // Validar que todas las columnas guardadas existen
+        const validColumns = parsed.filter((key: string) => columns.some(c => c.key === key))
+        if (validColumns.length > 0) {
+          setVisibleColumns(validColumns)
+        }
+      } catch (e) {
+        console.error('Error parsing saved columns:', e)
+      }
+    }
+  }, [title, columns])
+
+  // Guardar columnas visibles en localStorage cuando cambien
+  useEffect(() => {
+    const storageKey = `tableColumns_${title.replace(/\s+/g, '_')}`
+    localStorage.setItem(storageKey, JSON.stringify(visibleColumns))
+  }, [visibleColumns, title])
+
+  // Cerrar dropdown de columnas al hacer clic fuera
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (columnSettingsRef.current && !columnSettingsRef.current.contains(event.target as Node)) {
+        setShowColumnSettings(false)
+      }
+    }
+
+    if (showColumnSettings) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showColumnSettings])
 
   // Filtrar datos según búsqueda
   const filteredData = useMemo(() => {
@@ -218,6 +264,45 @@ export default function TableTemplate<T>({
           <span className="text-gray-900">{title}</span>
         </div>
         <div className="flex items-center gap-2">
+          <div className="relative" ref={columnSettingsRef}>
+            <button
+              onClick={() => setShowColumnSettings(!showColumnSettings)}
+              className="p-2 text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
+              title="Configurar columnas"
+            >
+              <Settings size={18} />
+            </button>
+            
+            {showColumnSettings && (
+              <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-200 rounded-md shadow-lg z-50">
+                <div className="p-3 border-b border-gray-200">
+                  <h3 className="text-sm font-semibold text-gray-900">Columnas visibles</h3>
+                </div>
+                <div className="p-2 max-h-96 overflow-y-auto">
+                  {columns.map((column) => (
+                    <label
+                      key={column.key}
+                      className="flex items-center gap-2 px-2 py-2 hover:bg-gray-50 rounded cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={visibleColumns.includes(column.key)}
+                        onChange={() => toggleColumn(column.key)}
+                        className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                      />
+                      <span className="text-sm text-gray-700">{column.label}</span>
+                      {visibleColumns.includes(column.key) ? (
+                        <Eye size={14} className="ml-auto text-gray-400" />
+                      ) : (
+                        <EyeOff size={14} className="ml-auto text-gray-400" />
+                      )}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          
           <button
             onClick={handleExportExcel}
             className="p-2 text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
@@ -300,6 +385,11 @@ export default function TableTemplate<T>({
                     </div>
                   </th>
                 ))}
+                {actions && (
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-600 uppercase">
+                    Acciones
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -310,7 +400,9 @@ export default function TableTemplate<T>({
                     key={getItemId(item)}
                     className="hover:bg-gray-50 transition-colors group cursor-pointer"
                     onClick={() => {
-                      if (onEdit) {
+                      if (onRowClick) {
+                        onRowClick(item)
+                      } else if (onEdit) {
                         onEdit(item)
                       } else if (editUrl) {
                         window.location.href = editUrl
@@ -321,10 +413,15 @@ export default function TableTemplate<T>({
                       <input type="checkbox" className="rounded border-gray-300" />
                     </td>
                     {columns.filter(col => visibleColumns.includes(col.key)).map((column) => (
-                      <td key={column.key} className="px-4 py-3">
+                      <td key={column.key} className="px-4 py-3 text-gray-900">
                         {column.render(item)}
                       </td>
                     ))}
+                    {actions && (
+                      <td className="px-4 py-3 text-right">
+                        {actions(item)}
+                      </td>
+                    )}
                   </tr>
                 )
               })}
