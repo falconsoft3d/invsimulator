@@ -968,6 +968,38 @@ export default function InvestmentsPage() {
         }
     }
 
+    const loadFavoriteData = async (symbol: string) => {
+        setLoadingFavorites(prev => new Set(prev).add(symbol))
+        
+        try {
+            // Cargar cotización actual
+            const quoteRes = await fetch(`/api/stocks/quote?symbol=${encodeURIComponent(symbol)}`)
+            if (quoteRes.ok) {
+                const quote = await quoteRes.json()
+                setFavoriteQuotes(prev => ({ ...prev, [symbol]: quote }))
+            }
+
+            // Cargar datos históricos (últimos 7 días con intervalo de 15 minutos)
+            const historyRes = await fetch(`/api/stocks/history?symbol=${encodeURIComponent(symbol)}&period=5d`)
+            if (historyRes.ok) {
+                const historyData = await historyRes.json()
+                const chartData = (historyData.data || []).map((item: any) => ({
+                    ...item,
+                    openClose: [item.open, item.close]
+                }))
+                setFavoriteChartData(prev => ({ ...prev, [symbol]: chartData }))
+            }
+        } catch (error) {
+            console.error(`Error loading data for ${symbol}:`, error)
+        } finally {
+            setLoadingFavorites(prev => {
+                const newSet = new Set(prev)
+                newSet.delete(symbol)
+                return newSet
+            })
+        }
+    }
+
     return (
         <div className="p-8">
             <div className="mb-6">
